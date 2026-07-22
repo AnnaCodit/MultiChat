@@ -197,6 +197,7 @@ class VkLiveConnector {
       // Extract author
       const authorObj = payload.author || (payload.sender ? payload.sender : null);
       const author = authorObj ? (authorObj.displayName || authorObj.nick || authorObj.name) : 'VKUser';
+      const color = authorObj ? (authorObj.color || authorObj.nickColor) : null;
 
       // Extract & parse message text (unpacks Draft.js tuples like ["сообщение","unstyled",[]])
       const text = this.parseVkText(payload.content || payload.data || payload.text);
@@ -226,6 +227,7 @@ class VkLiveConnector {
         platform: 'vklive',
         author: author,
         text: text,
+        color: color,
         replyTo: replyTo,
         raw: payload
       });

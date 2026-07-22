@@ -206,11 +206,13 @@ body.dark-theme {
   display: none !important;
 }
 
-/* Parent Header Element wrapping Platform Icon, Nickname, and Colon */
+/* Parent Header Element wrapping Platform Icon, User Badges, Nickname, and Colon */
 .msg-header {
   display: inline;
   align-items: center;
+  gap: 4px;
   margin-right: 4px;
+  vertical-align: baseline;
   user-select: none;
 }
 
@@ -227,8 +229,6 @@ body.dark-theme {
   text-transform: uppercase;
   flex-shrink: 0;
   vertical-align: middle;
-  margin-right: 4px;
-  margin-top: -3px;
 }
 
 .msg-platform.twitch {
@@ -252,10 +252,21 @@ body.dark-theme {
   color: #fff;
 }
 
+/* User Role Badges (Moderator, VIP, Sub, Broadcaster, etc.) */
+.chat-badge {
+  height: 14px;
+  width: 14px;
+  vertical-align: middle;
+  margin-right: 1px;
+  display: inline-block;
+  border-radius: 2px;
+}
+
 /* User Nickname & Text */
 .msg-author {
   font-weight: 700;
   color: #38bdf8;
+  /* Default fallback color */
   vertical-align: baseline;
 }
 

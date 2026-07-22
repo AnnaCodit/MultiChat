@@ -157,6 +157,10 @@ class KickConnector {
         const author = msgData.sender ? (msgData.sender.username || msgData.sender.slug) : 'KickUser';
         const content = msgData.content || '';
         
+        // Extract color and badges from Kick sender identity
+        const color = (msgData.sender && msgData.sender.identity) ? msgData.sender.identity.color : null;
+        const badges = (msgData.sender && msgData.sender.identity) ? msgData.sender.identity.badges : null;
+
         // Correct original_sender handling for replies
         let replyTo = null;
         if (msgData.metadata) {
@@ -171,6 +175,8 @@ class KickConnector {
           platform: 'kick',
           author: author,
           text: content,
+          color: color,
+          badges: badges,
           replyTo: replyTo,
           raw: msgData
         });

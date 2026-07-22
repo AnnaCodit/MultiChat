@@ -142,13 +142,18 @@ class TwitchConnector {
       }
 
       // Extract reply metadata from Twitch tags
-      // reply-parent-user-login contains the target username of a reply!
       const replyTo = tags['reply-parent-user-login'] || null;
+
+      // Extract nickname color & user badges from Twitch IRC tags
+      const userColor = tags['color'] || null;
+      const userBadges = tags['badges'] || null;
 
       this.onMessage({
         platform: 'twitch',
         author: author,
         text: content,
+        color: userColor,
+        badges: userBadges,
         replyTo: replyTo,
         tags: tags
       });

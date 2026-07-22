@@ -22,7 +22,7 @@ class MultiChatApp {
 
     this.initUI();
     
-    // Add demonstration test messages (one short, one long)
+    // Add demonstration test messages (short, long, badges, colors)
     this.addDemoMessages();
 
     // Auto-connect to saved channels on page load!
@@ -30,15 +30,29 @@ class MultiChatApp {
   }
 
   addDemoMessages() {
+    // Demonstration Twitch message with 3 badges (Broadcaster + Subscriber + Partner)
     this.handleIncomingMessage({
       platform: 'twitch',
-      author: 'ТестовыйЧаттер',
+      author: 'TwitchBroadcaster',
+      color: '#9146FF',
+      badges: 'broadcaster/1,subscriber/1,partner/1',
       text: 'Привет! Чат подключен и готов к работе 🚀'
     });
 
+    // Demonstration Kick message with Kick Broadcaster badge
+    this.handleIncomingMessage({
+      platform: 'kick',
+      author: 'fra3a',
+      color: '#53FC18',
+      badges: [{ type: 'broadcaster' }],
+      text: 'Проверяем выведение цветных никнеймов и всех значков модераторов и стримеров.'
+    });
+
+    // Demonstration VK Live message
     this.handleIncomingMessage({
       platform: 'vklive',
       author: 'Анна',
+      color: '#e056fd',
       text: 'Это длинное тестовое сообщение для проверки переноса нескольких строк текста, шрифтов, отображения никнеймов и плашек платформ. Всё отображается отлично!'
     });
   }
@@ -170,21 +184,26 @@ class MultiChatApp {
     const platformLabel = platformClass.charAt(0).toUpperCase();
     const escapedAuthor = this.escapeHTML(msg.author);
 
+    // Badges HTML (Parses ALL user badges: Twitch & Kick)
+    const badgesHTML = this.emotes.getBadgesHTML(msg);
+
+    // Custom user nickname color
+    const authorStyle = msg.color ? `style="color: ${this.escapeHTML(msg.color)}"` : '';
+
     if (shouldCollapse) {
-      // Collapsed Chatter-to-Chatter Reply format
+      // Collapsed Chatter-to-Chatter Reply format (Clean placeholder without platform badge)
       lineEl.classList.add('collapsed-reply');
       lineEl.innerHTML = `
         <div class="collapsed-placeholder">
-          <span class="msg-platform ${platformClass}">${platformLabel}</span>
           <span>[чаттерсы общаются]</span>
         </div>
         <div class="collapsed-content">
-          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span><span class="msg-author">${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>
+          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>
         </div>
       `;
     } else {
       // Standard Chat Line format with parent msg-header wrapper
-      lineEl.innerHTML = `<span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span><span class="msg-author">${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>`;
+      lineEl.innerHTML = `<span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>`;
     }
 
     this.chatMessagesEl.appendChild(lineEl);

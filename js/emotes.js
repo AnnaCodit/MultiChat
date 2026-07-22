@@ -1,20 +1,61 @@
 /**
- * Emote Manager for MultiChat
- * Supports Twitch Native Emotes, Kick Native Emotes ([emote:id:name]), 7TV (Global + Channel), BetterTTV (BTTV), FrankerFaceZ (FFZ).
+ * Emote & Badge Manager for MultiChat
+ * Supports Twitch Native Emotes & Badges, Kick Native Emotes & Badges, 7TV, BTTV, FFZ.
  */
 
 class EmoteManager {
   constructor() {
     this.emoteMap = new Map(); // token -> imageUrl
+    this.badgeMap = new Map(); // set_id/version -> imageUrl
     this.loadedChannels = new Set();
+
+    // Default static fallback badge URLs for common Twitch/Kick roles
+    this.defaultTwitchBadges = {
+      'broadcaster/1': 'https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/1',
+      'moderator/1': 'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1',
+      'vip/1': 'https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/1',
+      'partner/1': 'https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab77-b780518f00a3/1',
+      'premium/1': 'https://static-cdn.jtvnw.net/badges/v1/bbbe0db0-a598-423e-86d0-f9fb98ca1933/1',
+      'subscriber/1': 'https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/1',
+      'founder/0': 'https://static-cdn.jtvnw.net/badges/v1/52467d0f-4856-4ec8-8889-1065c786c57f/1'
+    };
+
+    // Load Twitch global badges asynchronously
+    this.loadGlobalBadges().catch(() => {});
   }
 
   /**
-   * Reset emote map
+   * Reset maps
    */
   clear() {
     this.emoteMap.clear();
     this.loadedChannels.clear();
+  }
+
+  /**
+   * Fetch Twitch Global Badges from IVR API
+   */
+  async loadGlobalBadges() {
+    try {
+      const res = await fetch('https://api.ivr.fi/v2/twitch/badges/global');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        data.forEach(set => {
+          if (set.set_id && Array.isArray(set.versions)) {
+            set.versions.forEach(v => {
+              if (v.id && (v.image_url_1x || v.image_url_2x)) {
+                const key = set.set_id + '/' + v.id;
+                this.badgeMap.set(key, v.image_url_1x || v.image_url_2x);
+              }
+            });
+          }
+        });
+        console.log(`[MultiChat Badges] Loaded ${this.badgeMap.size} Twitch badges.`);
+      }
+    } catch (e) {
+      console.warn('[Badges] Failed to load Twitch global badges:', e.message);
+    }
   }
 
   /**
@@ -113,7 +154,6 @@ class EmoteManager {
     try {
       const cleanChannel = channelName.replace(/^@+/, '').trim().toLowerCase();
       
-      // Resolve Twitch username -> numeric Twitch User ID using DecAPI
       const decRes = await fetch(`https://decapi.me/twitch/id/${encodeURIComponent(cleanChannel)}`);
       if (!decRes.ok) return;
       const twitchUserId = (await decRes.text()).trim();
@@ -194,7 +234,72 @@ class EmoteManager {
   }
 
   /**
-   * Parse Twitch native emotes tag (e.g. "25:0-4,6-10/1902:12-16")
+   * Render User Badges HTML (Parses ALL user badges for Twitch & Kick)
+   */
+  getBadgesHTML(msg) {
+    if (!msg || !msg.badges) return '';
+
+    let badgeUrls = [];
+
+    // 1. Twitch Badges Parsing (renders ALL badges present in tags, e.g. "broadcaster/1,subscriber/12,partner/1")
+    if (msg.platform === 'twitch') {
+      let badgeTokens = [];
+      if (typeof msg.badges === 'string') {
+        badgeTokens = msg.badges.split(',').filter(Boolean);
+      } else if (Array.isArray(msg.badges)) {
+        badgeTokens = msg.badges;
+      }
+
+      badgeTokens.forEach(token => {
+        // Direct match (e.g. "broadcaster/1", "subscriber/12")
+        let url = this.badgeMap.get(token) || this.defaultTwitchBadges[token];
+        
+        // Fallback to base set_id (e.g. "subscriber/1" or "subscriber/0")
+        if (!url) {
+          const setId = token.split('/')[0];
+          url = this.badgeMap.get(setId + '/1') || 
+                this.badgeMap.get(setId + '/0') || 
+                this.defaultTwitchBadges[setId + '/1'] ||
+                this.defaultTwitchBadges[setId + '/0'];
+        }
+
+        if (url) {
+          badgeUrls.push({ url, title: token });
+        }
+      });
+    }
+
+    // 2. Kick Badges Parsing (renders ALL badges in array)
+    if (msg.platform === 'kick' && Array.isArray(msg.badges)) {
+      msg.badges.forEach(b => {
+        let url = null;
+        if (b.active_badge && b.active_badge.url) url = b.active_badge.url;
+        else if (b.url) url = b.url;
+        
+        // Fallbacks for common Kick badge types
+        if (!url && b.type) {
+          if (b.type === 'broadcaster') url = this.defaultTwitchBadges['broadcaster/1'];
+          else if (b.type === 'moderator') url = this.defaultTwitchBadges['moderator/1'];
+          else if (b.type === 'vip') url = this.defaultTwitchBadges['vip/1'];
+        }
+
+        if (url) {
+          badgeUrls.push({ url, title: b.type || b.text || 'badge' });
+        }
+      });
+    }
+
+    if (badgeUrls.length === 0) return '';
+
+    return badgeUrls.map(b => {
+      const cleanUrl = this.escapeAttr(b.url);
+      const cleanTitle = this.escapeAttr(b.title);
+      return `<img class="chat-badge" src="${cleanUrl}" alt="${cleanTitle}" title="${cleanTitle}">`;
+    }).join('');
+  }
+
+  /**
+   * Parse Twitch native emotes tag
    */
   parseTwitchNativeEmotes(text, emotesTag) {
     if (!text || !emotesTag) return text;
@@ -225,7 +330,6 @@ class EmoteManager {
         });
       });
 
-      // Sort by start position descending (back to front replacement)
       replacements.sort((a, b) => b.start - a.start);
 
       let result = text;
@@ -259,15 +363,12 @@ class EmoteManager {
   parseEmotes(text, twitchEmotesTag = null) {
     if (!text) return '';
 
-    // 1. Process Kick native emotes [emote:id:name]
     let processedText = this.parseKickNativeEmotes(text);
 
-    // 2. Process Twitch native emotes tag if present
     if (twitchEmotesTag) {
       processedText = this.parseTwitchNativeEmotes(processedText, twitchEmotesTag);
     }
 
-    // 3. Escape HTML if no native HTML tags were added
     let safeHTML = processedText;
     const hasNativeImgTags = processedText.includes('<img class="chat-emote"');
     if (!hasNativeImgTags) {
@@ -279,7 +380,6 @@ class EmoteManager {
         .replace(/'/g, '&#039;');
     }
 
-    // 4. Process 3rd-party emotes (7TV, BTTV, FFZ)
     if (this.emoteMap.size > 0) {
       const words = safeHTML.split(' ');
       safeHTML = words.map(word => {
