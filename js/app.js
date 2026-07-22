@@ -168,6 +168,7 @@ class MultiChatApp {
 
     const platformClass = msg.platform || 'twitch';
     const platformLabel = platformClass.charAt(0).toUpperCase();
+    const escapedAuthor = this.escapeHTML(msg.author);
 
     if (shouldCollapse) {
       // Collapsed Chatter-to-Chatter Reply format
@@ -178,17 +179,12 @@ class MultiChatApp {
           <span>[чаттерсы общаются]</span>
         </div>
         <div class="collapsed-content">
-          <span class="msg-author">${this.escapeHTML(msg.author)}</span><span class="msg-colon">:</span>
-          <span class="msg-text">${parsedTextHTML}</span>
+          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span><span class="msg-author">${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>
         </div>
       `;
     } else {
-      // Standard Chat Line format
-      lineEl.innerHTML = `
-        <span class="msg-platform ${platformClass}">${platformLabel}</span>
-        <span class="msg-author">${this.escapeHTML(msg.author)}</span><span class="msg-colon">:</span>
-        <span class="msg-text">${parsedTextHTML}</span>
-      `;
+      // Standard Chat Line format with parent msg-header wrapper
+      lineEl.innerHTML = `<span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span><span class="msg-author">${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>`;
     }
 
     this.chatMessagesEl.appendChild(lineEl);
