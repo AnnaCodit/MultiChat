@@ -206,6 +206,10 @@ body.dark-theme {
   display: none !important;
 }
 
+.chat-line a {
+  color: #a3a3a3;
+}
+
 /* Parent Header Element wrapping Platform Icon, User Badges Container, Nickname, and Colon */
 .msg-header {
   display: inline;

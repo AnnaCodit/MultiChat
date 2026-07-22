@@ -4,7 +4,7 @@
  */
 
 async function fetchWithCorsProxy(url) {
-  // If URL is known to block CORS directly (YouTube, Kick API, VK Video), skip direct fetch to prevent red console errors
+  // Skip direct fetch for CORS-restricted domains to prevent red console errors
   const isCorsBlockedDirectly = /youtube\.com|kick\.com|vkplay\.live|vkvideo\.ru/i.test(url);
 
   if (!isCorsBlockedDirectly) {
@@ -12,26 +12,29 @@ async function fetchWithCorsProxy(url) {
       const res = await fetch(url);
       if (res.ok) return res;
     } catch (e) {
-      // Direct fetch failed, fallback to proxies
+      // Direct fetch failed
     }
   }
 
-  // List of CORS proxies
-  const proxies = [
-    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-    (u) => `https://corsproxy.org/?${encodeURIComponent(u)}`
-  ];
-
-  for (const proxyFn of proxies) {
-    try {
-      const proxyUrl = proxyFn(url);
-      const res = await fetch(proxyUrl);
-      if (res && res.ok) return res;
-    } catch (e) {
-      // Quietly try next proxy
+  // 1. AllOrigins JSON Endpoint (/get) returns HTTP 200 with { contents: "..." }, preventing red CORS/520 console errors
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.contents === 'string') {
+        return new Response(data.contents, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' }
+        });
+      }
     }
-  }
+  } catch (e) {}
+
+  // 2. Codetabs proxy fallback
+  try {
+    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+    if (res && res.ok) return res;
+  } catch (e) {}
 
   throw new Error(`Unable to fetch ${url} via CORS proxies.`);
 }
