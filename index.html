@@ -1,69 +1,51 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MultiChat Stream - Twitch, YouTube, Kick, VK Live</title>
-  
+  <title>MultiChat Stream</title>
   <!-- Google Fonts: Inter & JetBrains Mono for clean, highly legible stream text -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="dark-theme">
 
+<body class="dark-theme">
   <!-- Header / Control Bar -->
   <header class="app-header">
     <div class="header-left">
-      <h1 class="app-title">
-        <span class="title-gradient">MultiChat</span>
-      </h1>
       <div class="status-indicators" id="statusIndicators">
         <span class="status-badge status-twitch offline" id="statusTwitch" title="Twitch">
-          <span class="platform-icon twitch-icon"></span> Twitch
-        </span>
+          <span class="platform-icon twitch-icon"></span> TW </span>
         <span class="status-badge status-kick offline" id="statusKick" title="Kick">
-          <span class="platform-icon kick-icon"></span> Kick
-        </span>
-        <span class="status-badge status-vk offline" id="statusVk" title="VK Live">
-          <span class="platform-icon vk-icon"></span> VK Live
-        </span>
-        <span class="status-badge status-youtube offline" id="statusYoutube" title="YouTube">
-          <span class="platform-icon youtube-icon"></span> YouTube
-        </span>
+          <span class="platform-icon kick-icon"></span> KI </span>
+        <span class="status-badge status-vk offline" id="statusVk" title="ВК">
+          <span class="platform-icon vk-icon"></span> VK </span>
+        <span class="status-badge status-youtube offline" id="statusYoutube" title="YT">
+          <span class="platform-icon youtube-icon"></span> YT </span>
       </div>
     </div>
-
     <div class="header-right">
       <button class="btn btn-icon" id="openSettingsBtn" title="Настройки">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-        </svg>
-        <span>Настройки</span>
-      </button>
-      <button class="btn btn-secondary btn-icon" id="clearChatBtn" title="Очистить чат">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+          </path>
         </svg>
       </button>
     </div>
   </header>
-
   <!-- Main Chat Feed Container -->
   <main class="chat-container" id="chatContainer">
     <div class="chat-messages" id="chatMessages">
-      <!-- System welcome message -->
-      <div class="chat-line system-line">
-        <span class="system-badge">System</span>
-        <span class="system-text">Добро пожаловать в MultiChat! Укажите каналы в настройках для подключения.</span>
-      </div>
     </div>
   </main>
-
   <!-- Settings Modal Overlay -->
   <div class="modal-overlay hidden" id="settingsModal">
     <div class="modal-card">
@@ -71,58 +53,47 @@
         <h2>Настройки каналов и фильтрации</h2>
         <button class="modal-close" id="closeSettingsBtn">&times;</button>
       </div>
-
       <div class="modal-body">
         <form id="settingsForm">
-
           <!-- Platform Channel Inputs -->
           <section class="settings-group">
             <h3>Каналы трансляций</h3>
             <p class="settings-hint">Укажите имя канала или логин для каждой платформы:</p>
-
             <div class="form-row">
               <label for="twitchChannel">
-                <span class="platform-icon twitch-icon"></span> Twitch
-              </label>
+                <span class="platform-icon twitch-icon"></span> Twitch </label>
               <input type="text" id="twitchChannel" placeholder="например, streamer_name">
             </div>
-
             <div class="form-row">
               <label for="kickChannel">
-                <span class="platform-icon kick-icon"></span> Kick
-              </label>
+                <span class="platform-icon kick-icon"></span> Kick </label>
               <input type="text" id="kickChannel" placeholder="например, streamer_name или Chatroom ID">
             </div>
-
             <div class="form-row">
               <label for="vkChannel">
-                <span class="platform-icon vk-icon"></span> VK Live / VK Play
-              </label>
+                <span class="platform-icon vk-icon"></span> ВК </label>
               <input type="text" id="vkChannel" placeholder="например, streamer_name">
             </div>
-
             <div class="form-row">
               <label for="youtubeChannel">
-                <span class="platform-icon youtube-icon"></span> YouTube
-              </label>
+                <span class="platform-icon youtube-icon"></span> YouTube (YT) </label>
               <input type="text" id="youtubeChannel" placeholder="Имя канала (@handle) или ID трансляции">
             </div>
           </section>
-
           <!-- Streamer Nicknames & Mentions -->
           <section class="settings-group">
             <h3>Дополнительные никнеймы стримера</h3>
-            <p class="settings-hint">По умолчанию использую имена указанных каналов. Добавьте другие варианты через запятую:</p>
+            <p class="settings-hint">По умолчанию использую имена указанных каналов. Добавьте другие варианты через
+              запятую:</p>
             <div class="form-row">
               <input type="text" id="extraNicknames" placeholder="например: Anya, AnnaStream, Аня">
             </div>
           </section>
-
           <!-- Chatter-to-Chatter Reply Filtering -->
           <section class="settings-group">
             <h3>Фильтрация диалогов чаттерсов</h3>
-            <p class="settings-hint">Скрывать ответы чаттерсов друг другу, чтобы не отвлекаться во время стрима. Сообщения, адресованные вам, скрываться не будут.</p>
-
+            <p class="settings-hint">Скрывать ответы чаттерсов друг другу, чтобы не отвлекаться во время стрима.
+              Сообщения, адресованные вам, скрываться не будут.</p>
             <div class="toggle-row">
               <div class="toggle-info">
                 <span class="toggle-title">Скрывать общение чаттерсов между собой</span>
@@ -134,7 +105,6 @@
               </label>
             </div>
           </section>
-
           <!-- Emotes Options -->
           <section class="settings-group">
             <h3>Смайлики (7TV, BTTV, FFZ)</h3>
@@ -149,7 +119,6 @@
               </label>
             </div>
           </section>
-
           <!-- Font Size Options -->
           <section class="settings-group">
             <h3>Размер шрифта чата</h3>
@@ -160,13 +129,11 @@
           </section>
         </form>
       </div>
-
       <div class="modal-footer">
         <button class="btn btn-primary" id="saveSettingsBtn">Сохранить и подключиться</button>
       </div>
     </div>
   </div>
-
   <!-- JavaScript Codebase -->
   <script src="js/utils.js"></script>
   <script src="js/settings.js"></script>
@@ -178,4 +145,5 @@
   <script src="js/connectors/youtube.js"></script>
   <script src="js/app.js"></script>
 </body>
+
 </html>

@@ -22,8 +22,25 @@ class MultiChatApp {
 
     this.initUI();
     
+    // Add demonstration test messages (one short, one long)
+    this.addDemoMessages();
+
     // Auto-connect to saved channels on page load!
     this.initEmotesAndConnect();
+  }
+
+  addDemoMessages() {
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'ТестовыйЧаттер',
+      text: 'Привет! Чат подключен и готов к работе 🚀'
+    });
+
+    this.handleIncomingMessage({
+      platform: 'vklive',
+      author: 'Анна',
+      text: 'Это длинное тестовое сообщение для проверки переноса нескольких строк текста, шрифтов, отображения никнеймов и плашек платформ. Всё отображается отлично!'
+    });
   }
 
   initUI() {
@@ -32,40 +49,44 @@ class MultiChatApp {
     const closeBtn = document.getElementById('closeSettingsBtn');
     const saveBtn = document.getElementById('saveSettingsBtn');
     const modalEl = document.getElementById('settingsModal');
-    const clearBtn = document.getElementById('clearChatBtn');
     const fontRange = document.getElementById('fontSizeRange');
     const fontVal = document.getElementById('fontSizeVal');
 
-    openBtn.addEventListener('click', () => {
-      this.settings.populateForm();
-      modalEl.classList.remove('hidden');
-    });
+    if (openBtn) {
+      openBtn.addEventListener('click', () => {
+        this.settings.populateForm();
+        modalEl.classList.remove('hidden');
+      });
+    }
 
-    closeBtn.addEventListener('click', () => {
-      modalEl.classList.add('hidden');
-    });
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        modalEl.classList.add('hidden');
+      });
+    }
 
-    modalEl.addEventListener('click', (e) => {
-      if (e.target === modalEl) modalEl.classList.add('hidden');
-    });
+    if (modalEl) {
+      modalEl.addEventListener('click', (e) => {
+        if (e.target === modalEl) modalEl.classList.add('hidden');
+      });
+    }
 
-    saveBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      const updated = this.settings.readForm();
-      modalEl.classList.add('hidden');
-      this.applyFontSettings(updated.fontSize);
-      this.initEmotesAndConnect();
-    });
+    if (saveBtn) {
+      saveBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const updated = this.settings.readForm();
+        modalEl.classList.add('hidden');
+        this.applyFontSettings(updated.fontSize);
+        this.initEmotesAndConnect();
+      });
+    }
 
-    fontRange.addEventListener('input', (e) => {
-      fontVal.textContent = e.target.value + 'px';
-      this.applyFontSettings(e.target.value);
-    });
-
-    clearBtn.addEventListener('click', () => {
-      this.chatMessagesEl.innerHTML = '';
-      this.addSystemMessage('Чат очищен.');
-    });
+    if (fontRange) {
+      fontRange.addEventListener('input', (e) => {
+        fontVal.textContent = e.target.value + 'px';
+        this.applyFontSettings(e.target.value);
+      });
+    }
 
     // Event Delegation for collapsed messages
     this.chatMessagesEl.addEventListener('click', (e) => {
@@ -177,17 +198,6 @@ class MultiChatApp {
       this.chatMessagesEl.removeChild(this.chatMessagesEl.firstChild);
     }
 
-    this.scrollToBottom();
-  }
-
-  addSystemMessage(text) {
-    const line = document.createElement('div');
-    line.className = 'chat-line system-line';
-    line.innerHTML = `
-      <span class="system-badge">System</span>
-      <span class="system-text">${this.escapeHTML(text)}</span>
-    `;
-    this.chatMessagesEl.appendChild(line);
     this.scrollToBottom();
   }
 

@@ -25,10 +25,20 @@ class KickConnector {
     const cleanInput = channelInput.trim().replace(/^@+/, '');
     this.channel = cleanInput.toLowerCase();
 
-    // Direct numeric Chatroom ID
+    // Direct numeric Chatroom ID provided
     if (/^\d+$/.test(cleanInput)) {
       this.chatroomId = cleanInput;
       console.log(`[Kick Connector] Direct Chatroom ID provided: ${this.chatroomId}`);
+      this.initPusherWS();
+      return;
+    }
+
+    // Check localStorage cache first to avoid CORS proxy calls
+    const cacheKey = `kick_chatroom_id_${this.channel}`;
+    const cachedId = localStorage.getItem(cacheKey);
+    if (cachedId) {
+      this.chatroomId = cachedId;
+      console.log(`[Kick Connector] Using cached Chatroom ID (${cachedId}) for ${this.channel}`);
       this.initPusherWS();
       return;
     }
@@ -39,6 +49,7 @@ class KickConnector {
     let foundId = await this.resolveChatroomId(this.channel);
     if (foundId) {
       this.chatroomId = foundId;
+      localStorage.setItem(cacheKey, foundId);
       console.log(`[Kick Connector] Resolved Chatroom ID: ${this.chatroomId}. Connecting Pusher WS...`);
       this.initPusherWS();
     } else {
@@ -52,7 +63,7 @@ class KickConnector {
       const res = await fetchWithCorsProxy(`https://kick.com/api/v2/channels/${encodeURIComponent(channelName)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data && data.chatroom && data.chatroom.id) return data.chatroom.id;
+        if (data && data.chatroom && data.chatroom.id) return String(data.chatroom.id);
       }
     } catch (e) {}
 
@@ -61,7 +72,7 @@ class KickConnector {
       const res = await fetchWithCorsProxy(`https://kick.com/api/v1/channels/${encodeURIComponent(channelName)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data && data.chatroom && data.chatroom.id) return data.chatroom.id;
+        if (data && data.chatroom && data.chatroom.id) return String(data.chatroom.id);
       }
     } catch (e) {}
 
@@ -120,7 +131,7 @@ class KickConnector {
       };
 
       this.ws.onclose = () => {
-        console.warn('[Kick Connector] WS Closed.');
+        console.warn('[Kick Connector] WS Closed. Reconnecting in 5s...');
         this.onStatus('kick', false, 'Отключен');
         this.cleanup();
 
@@ -146,9 +157,14 @@ class KickConnector {
         const author = msgData.sender ? (msgData.sender.username || msgData.sender.slug) : 'KickUser';
         const content = msgData.content || '';
         
+        // Correct original_sender handling for replies
         let replyTo = null;
-        if (msgData.metadata && msgData.metadata.original_message) {
-          replyTo = msgData.metadata.original_message.sender ? msgData.metadata.original_message.sender.username : null;
+        if (msgData.metadata) {
+          if (msgData.metadata.original_sender) {
+            replyTo = msgData.metadata.original_sender.username || msgData.metadata.original_sender.slug;
+          } else if (msgData.metadata.original_message && msgData.metadata.original_message.sender) {
+            replyTo = msgData.metadata.original_message.sender.username || msgData.metadata.original_message.sender.slug;
+          }
         }
 
         this.onMessage({

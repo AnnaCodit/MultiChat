@@ -10,6 +10,7 @@ class VkLiveConnector {
     this.ws = null;
     this.channel = '';
     this.channelId = null;
+    this.reconnectTimer = null;
     this.seenMessageIds = new Set();
   }
 
@@ -24,6 +25,23 @@ class VkLiveConnector {
     this.channel = channelName.toLowerCase().trim().replace(/^@+/, '');
     console.log(`[VK Live Connector] Connecting VK channel: ${this.channel}...`);
     this.onStatus('vk', false, 'Поиск канала VK Live...');
+
+    // Check localStorage cache for valid channelId and JWT token
+    const cacheKey = `vk_cache_${this.channel}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { channelId, jwtToken, exp } = JSON.parse(cached);
+        const nowSec = Math.floor(Date.now() / 1000);
+        // If token expires in > 300 seconds, use cached credentials
+        if (channelId && jwtToken && exp && (exp - nowSec) > 300) {
+          this.channelId = channelId;
+          console.log(`[VK Live Connector] Using cached VK credentials for ${this.channel}`);
+          this.initCentrifugoWS(jwtToken);
+          return;
+        }
+      }
+    } catch (e) {}
 
     try {
       // 1. Fetch channel ID from VK Video Live API
@@ -40,12 +58,27 @@ class VkLiveConnector {
       const htmlRes = await fetchWithCorsProxy(`https://live.vkvideo.ru/${encodeURIComponent(this.channel)}`);
       const html = await htmlRes.text();
       
-      const jwtIdx = html.indexOf('eyJ');
-      if (jwtIdx === -1) {
+      const jwtToken = this.extractJwtTokenFromHtml(html);
+      if (!jwtToken) {
         throw new Error('Guest JWT token not found in HTML');
       }
-      const jwtEnd = html.indexOf('"', jwtIdx);
-      const jwtToken = html.substring(jwtIdx, jwtEnd > jwtIdx ? jwtEnd : jwtIdx + 250);
+
+      // Parse exp from JWT if possible
+      let exp = Math.floor(Date.now() / 1000) + 86400; // default 24h fallback
+      try {
+        const parts = jwtToken.split('.');
+        if (parts.length >= 2) {
+          const payloadObj = JSON.parse(atob(parts[1]));
+          if (payloadObj && payloadObj.exp) exp = payloadObj.exp;
+        }
+      } catch(e) {}
+
+      // Cache token in localStorage
+      localStorage.setItem(cacheKey, JSON.stringify({
+        channelId: this.channelId,
+        jwtToken: jwtToken,
+        exp: exp
+      }));
 
       console.log(`[VK Live Connector] Extracted guest JWT token. Opening Centrifugo WS...`);
       this.initCentrifugoWS(jwtToken);
@@ -54,6 +87,26 @@ class VkLiveConnector {
       console.warn('[VK Live Connector] Connection setup failed:', err.message);
       this.onStatus('vk', false, 'Канал не найден');
     }
+  }
+
+  extractJwtTokenFromHtml(html) {
+    if (!html) return null;
+    // 1. Strict regex for wsToken / token properties
+    const tokenMatch = html.match(/"wsToken"\s*:\s*"([^"]+)"/) || 
+                       html.match(/"token"\s*:\s*"(eyJ[^"]+)"/) ||
+                       html.match(/"signedQuery"\s*:\s*"(eyJ[^"]+)"/);
+    if (tokenMatch && tokenMatch[1]) {
+      return tokenMatch[1];
+    }
+
+    // 2. Fallback to index search for eyJ...
+    const jwtIdx = html.indexOf('eyJ');
+    if (jwtIdx !== -1) {
+      const jwtEnd = html.indexOf('"', jwtIdx);
+      return html.substring(jwtIdx, jwtEnd > jwtIdx ? jwtEnd : jwtIdx + 250);
+    }
+
+    return null;
   }
 
   initCentrifugoWS(jwtToken) {
@@ -121,9 +174,14 @@ class VkLiveConnector {
       };
 
       this.ws.onclose = (ev) => {
-        console.warn(`[VK Live Connector] WS Closed (Code: ${ev.code}, Reason: ${ev.reason}).`);
+        console.warn(`[VK Live Connector] WS Closed (Code: ${ev.code}, Reason: ${ev.reason}). Reconnecting in 5s...`);
         this.onStatus('vk', false, 'Отключен');
         this.cleanup();
+
+        // Auto reconnect
+        this.reconnectTimer = setTimeout(() => {
+          if (this.channel) this.connect(this.channel);
+        }, 5000);
       };
     } catch (e) {
       console.error('[VK Live Connector] Exception during WS setup:', e);
@@ -140,7 +198,7 @@ class VkLiveConnector {
       const authorObj = payload.author || (payload.sender ? payload.sender : null);
       const author = authorObj ? (authorObj.displayName || authorObj.nick || authorObj.name) : 'VKUser';
 
-      // Extract & parse message text (unpacks rich text tuples like ["сообщение","unstyled",[]])
+      // Extract & parse message text (unpacks Draft.js tuples like ["сообщение","unstyled",[]])
       const text = this.parseVkText(payload.content || payload.data || payload.text);
       if (!text) return;
 
@@ -153,8 +211,14 @@ class VkLiveConnector {
         this.seenMessageIds.delete(first);
       }
 
+      // Check both parent message author and replyToAuthor
       let replyTo = null;
-      if (payload.replyToAuthor) {
+      if (payload.parent) {
+        const parentAuthor = payload.parent.author || payload.parent.sender;
+        if (parentAuthor) {
+          replyTo = parentAuthor.displayName || parentAuthor.nick || parentAuthor.name;
+        }
+      } else if (payload.replyToAuthor) {
         replyTo = payload.replyToAuthor.displayName || payload.replyToAuthor.nick;
       }
 
@@ -222,6 +286,9 @@ class VkLiveConnector {
   }
 
   cleanup() {
-    // Cleanup if needed
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 }

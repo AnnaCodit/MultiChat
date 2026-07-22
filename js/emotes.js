@@ -1,6 +1,6 @@
 /**
  * Emote Manager for MultiChat
- * Supports Twitch Native Emotes, 7TV (Global + Channel), BetterTTV (BTTV), FrankerFaceZ (FFZ).
+ * Supports Twitch Native Emotes, Kick Native Emotes ([emote:id:name]), 7TV (Global + Channel), BetterTTV (BTTV), FrankerFaceZ (FFZ).
  */
 
 class EmoteManager {
@@ -108,12 +108,12 @@ class EmoteManager {
     }
   }
 
-  // --- Twitch Channel Emotes (DecAPI -> Twitch User ID -> 7TV / BTTV / FFZ) ---
+  // --- Twitch Channel Emotes ---
   async fetchTwitchChannelEmotes(channelName) {
     try {
       const cleanChannel = channelName.replace(/^@+/, '').trim().toLowerCase();
       
-      // 1. Resolve Twitch username -> numeric Twitch User ID using DecAPI
+      // Resolve Twitch username -> numeric Twitch User ID using DecAPI
       const decRes = await fetch(`https://decapi.me/twitch/id/${encodeURIComponent(cleanChannel)}`);
       if (!decRes.ok) return;
       const twitchUserId = (await decRes.text()).trim();
@@ -126,7 +126,6 @@ class EmoteManager {
       console.log(`[Twitch Emotes] Resolved ${cleanChannel} -> Twitch User ID: ${twitchUserId}`);
 
       await Promise.allSettled([
-        // 7TV Channel Emotes
         fetch(`https://7tv.io/v3/users/twitch/${twitchUserId}`)
           .then(r => r.json())
           .then(data => {
@@ -142,7 +141,6 @@ class EmoteManager {
             }
           }).catch(() => {}),
 
-        // BTTV Channel Emotes
         fetch(`https://api.betterttv.net/3/cached/users/twitch/${twitchUserId}`)
           .then(r => r.json())
           .then(data => {
@@ -155,7 +153,6 @@ class EmoteManager {
             console.log(`[BTTV Channel] Loaded ${channelEmotes.length} emotes for ${cleanChannel}`);
           }).catch(() => {}),
 
-        // FFZ Channel Emotes
         fetch(`https://api.frankerfacez.com/v1/room/${encodeURIComponent(cleanChannel)}`)
           .then(r => r.json())
           .then(data => {
@@ -246,21 +243,34 @@ class EmoteManager {
   }
 
   /**
-   * Parse text message HTML, escaping unsafe tags and replacing 7TV/BTTV/FFZ emote tokens with <img> elements
+   * Parse Kick native emotes tag (e.g. "[emote:87361:KEWWL]")
+   */
+  parseKickNativeEmotes(text) {
+    if (!text || typeof text !== 'string') return text;
+    return text.replace(/\[emote:(\d+):([\w-]+)\]/g, (match, id, name) => {
+      const cleanName = this.escapeAttr(name);
+      return `<img class="chat-emote" src="https://files.kick.com/emotes/${id}/fullsize" alt="${cleanName}" title="${cleanName}" loading="lazy">`;
+    });
+  }
+
+  /**
+   * Parse text message HTML, replacing native & 3rd party emotes with <img> elements
    */
   parseEmotes(text, twitchEmotesTag = null) {
     if (!text) return '';
 
-    // 1. If Twitch native emotes tag is present, replace Twitch native emotes first
-    let processedText = text;
+    // 1. Process Kick native emotes [emote:id:name]
+    let processedText = this.parseKickNativeEmotes(text);
+
+    // 2. Process Twitch native emotes tag if present
     if (twitchEmotesTag) {
-      processedText = this.parseTwitchNativeEmotes(text, twitchEmotesTag);
+      processedText = this.parseTwitchNativeEmotes(processedText, twitchEmotesTag);
     }
 
-    // 2. If native emotes were parsed, we have HTML tags embedded.
-    // If no native emotes, escape raw HTML to prevent XSS
+    // 3. Escape HTML if no native HTML tags were added
     let safeHTML = processedText;
-    if (!twitchEmotesTag) {
+    const hasNativeImgTags = processedText.includes('<img class="chat-emote"');
+    if (!hasNativeImgTags) {
       safeHTML = processedText
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -269,16 +279,14 @@ class EmoteManager {
         .replace(/'/g, '&#039;');
     }
 
-    // 3. Process 3rd-party emotes (7TV, BTTV, FFZ) if enabled
+    // 4. Process 3rd-party emotes (7TV, BTTV, FFZ)
     if (this.emoteMap.size > 0) {
       const words = safeHTML.split(' ');
       safeHTML = words.map(word => {
-        // Skip already rendered <img> tags
         if (word.startsWith('<img') || word.includes('class="chat-emote"')) {
           return word;
         }
 
-        // Direct exact match
         if (this.emoteMap.has(word)) {
           const rawUrl = this.emoteMap.get(word);
           if (rawUrl && /^https?:\/\//i.test(rawUrl)) {
@@ -288,7 +296,6 @@ class EmoteManager {
           }
         }
 
-        // Punctuation match (e.g. "Sus!", "Sus,", "(Sus)")
         const cleanWordMatch = word.match(/^([^\w]*)([\w-]+)([^\w]*)$/);
         if (cleanWordMatch) {
           const [, prefix, bareWord, suffix] = cleanWordMatch;

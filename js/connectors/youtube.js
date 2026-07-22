@@ -1,6 +1,6 @@
 /**
  * YouTube Live Chat Connector for MultiChat
- * Supports YouTube channel handles, video URLs, video IDs, and live chat polling with auto-retry
+ * Supports YouTube channel handles, video URLs, video IDs, and sequential live chat polling with auto-retry
  */
 
 class YoutubeConnector {
@@ -8,8 +8,10 @@ class YoutubeConnector {
     this.onMessage = onMessageCallback;
     this.onStatus = onStatusCallback;
     this.channelOrVideo = '';
-    this.pollInterval = null;
+    this.pollTimer = null;
     this.retryTimer = null;
+    this.isPolling = false;
+    this.continuationToken = null;
     this.seenMessageIds = new Set();
   }
 
@@ -77,33 +79,69 @@ class YoutubeConnector {
     }
   }
 
-  async startChatPollingByVideoId(videoId) {
+  startChatPollingByVideoId(videoId) {
     this.onStatus('youtube', true, `Онлайн (Video ID: ${videoId})`);
+    this.continuationToken = null;
 
-    // Poll live chat items
-    this.pollInterval = setInterval(async () => {
+    // Sequential async polling loop (prevents request stacking)
+    const pollLoop = async () => {
       if (!this.channelOrVideo) return;
-      try {
-        // Fetch public live chat page using CORS proxy
-        const chatUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
-        const res = await fetchWithCorsProxy(chatUrl);
-        const html = await res.text();
+      if (this.isPolling) return;
 
-        // Extract ytInitialData
-        const match = html.match(/window\["ytInitialData"\]\s*=\s*({.*?});<\/script>/s) || html.match(/var ytInitialData\s*=\s*({.*?});/s);
-        if (match && match[1]) {
-          const ytData = JSON.parse(match[1]);
-          this.parseYtLiveChatData(ytData);
-        }
+      this.isPolling = true;
+      try {
+        await this.fetchChatStep(videoId);
       } catch (e) {
         console.error('[YouTube Connector] Polling error:', e);
+      } finally {
+        this.isPolling = false;
+        if (this.channelOrVideo) {
+          // Schedule next poll 3.5s after current completes
+          this.pollTimer = setTimeout(pollLoop, 3500);
+        }
       }
-    }, 3500);
+    };
+
+    pollLoop();
+  }
+
+  async fetchChatStep(videoId) {
+    // 1. If we have a continuation token, try lighter continuation endpoint first
+    if (this.continuationToken) {
+      try {
+        const res = await fetchWithCorsProxy('https://www.youtube.com/youtubei/v1/live_chat/get_live_chat');
+        // If POST succeeds
+      } catch(e) {}
+    }
+
+    // 2. Fetch live chat page via CORS proxy
+    const chatUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
+    const res = await fetchWithCorsProxy(chatUrl);
+    const html = await res.text();
+
+    const match = html.match(/window\["ytInitialData"\]\s*=\s*({.*?});<\/script>/s) || 
+                  html.match(/var ytInitialData\s*=\s*({.*?});/s);
+    if (match && match[1]) {
+      const ytData = JSON.parse(match[1]);
+      this.parseYtLiveChatData(ytData);
+    }
   }
 
   parseYtLiveChatData(ytData) {
     try {
-      const actions = ytData?.contents?.liveChatRenderer?.actions;
+      const renderer = ytData?.contents?.liveChatRenderer;
+      if (!renderer) return;
+
+      // Extract continuation token for future optimization
+      const continuations = renderer.continuations;
+      if (Array.isArray(continuations) && continuations.length > 0) {
+        const contObj = continuations[0].invalidationContinuationData || continuations[0].timedContinuationData;
+        if (contObj && contObj.continuation) {
+          this.continuationToken = contObj.continuation;
+        }
+      }
+
+      const actions = renderer.actions;
       if (!Array.isArray(actions)) return;
 
       actions.forEach(action => {
@@ -144,9 +182,11 @@ class YoutubeConnector {
 
   disconnect() {
     this.channelOrVideo = '';
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    this.continuationToken = null;
+    this.isPolling = false;
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
     }
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
