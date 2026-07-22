@@ -10,10 +10,14 @@
   --text-muted: #8b92a5;
   --text-dim: #5c6275;
 
-  --accent-purple: #9146FF; /* Twitch */
-  --accent-green: #53FC18;  /* Kick */
-  --accent-blue: #0077FF;   /* VK Live */
-  --accent-red: #FF0000;    /* YouTube */
+  --accent-purple: #9146FF;
+  /* Twitch */
+  --accent-green: #53FC18;
+  /* Kick */
+  --accent-blue: #0077FF;
+  /* VK Live */
+  --accent-red: #FF0000;
+  /* YouTube */
 
   --border-color: #2b2f3a;
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -103,10 +107,25 @@ body.dark-theme {
   background-color: currentColor;
 }
 
-.status-twitch .platform-icon { background-color: var(--accent-purple); color: var(--accent-purple); }
-.status-kick .platform-icon { background-color: var(--accent-green); color: var(--accent-green); }
-.status-vk .platform-icon { background-color: var(--accent-blue); color: var(--accent-blue); }
-.status-youtube .platform-icon { background-color: var(--accent-red); color: var(--accent-red); }
+.status-twitch .platform-icon {
+  background-color: var(--accent-purple);
+  color: var(--accent-purple);
+}
+
+.status-kick .platform-icon {
+  background-color: var(--accent-green);
+  color: var(--accent-green);
+}
+
+.status-vk .platform-icon {
+  background-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.status-youtube .platform-icon {
+  background-color: var(--accent-red);
+  color: var(--accent-red);
+}
 
 .header-right {
   display: flex;
@@ -130,14 +149,14 @@ body.dark-theme {
 }
 
 .btn-icon {
-  background-color: var(--bg-card);
-  border-color: var(--border-color);
+  background-color: transparent;
+  border: none;
   color: var(--text-main);
-  padding: 6px;
+  padding: 0px;
 }
 
 .btn-icon:hover {
-  background-color: var(--bg-hover);
+  background-color: transparent;
 }
 
 .btn-primary {
@@ -203,10 +222,25 @@ body.dark-theme {
   flex-shrink: 0;
 }
 
-.msg-platform.twitch { background-color: var(--accent-purple); color: #fff; }
-.msg-platform.kick { background-color: var(--accent-green); color: #000; }
-.msg-platform.vklive { background-color: var(--accent-blue); color: #fff; }
-.msg-platform.youtube { background-color: var(--accent-red); color: #fff; }
+.msg-platform.twitch {
+  background-color: var(--accent-purple);
+  color: #fff;
+}
+
+.msg-platform.kick {
+  background-color: var(--accent-green);
+  color: #000;
+}
+
+.msg-platform.vklive {
+  background-color: var(--accent-blue);
+  color: #fff;
+}
+
+.msg-platform.youtube {
+  background-color: var(--accent-red);
+  color: #fff;
+}
 
 /* User Nickname & Text */
 .msg-author {
@@ -459,12 +493,12 @@ body.dark-theme {
   border-radius: 50%;
 }
 
-input:checked + .slider {
+input:checked+.slider {
   background-color: #6366f1;
   border-color: #6366f1;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
   transform: translateX(20px);
   background-color: #ffffff;
 }
