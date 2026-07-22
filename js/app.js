@@ -21,7 +21,7 @@ class MultiChatApp {
     this.chatContainerEl = document.getElementById('chatContainer');
 
     this.initUI();
-    
+
     // Add demonstration test messages (short, long, badges, colors)
     this.addDemoMessages();
 
@@ -195,7 +195,7 @@ class MultiChatApp {
       lineEl.classList.add('collapsed-reply');
       lineEl.innerHTML = `
         <div class="collapsed-placeholder">
-          <span>[чаттерсы общаются]</span>
+          <span>===</span>
         </div>
         <div class="collapsed-content">
           <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>

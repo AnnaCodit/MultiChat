@@ -298,10 +298,10 @@ body.dark-theme {
 
 /* Hidden Chatter-to-Chatter Reply Placeholder */
 .chat-line.collapsed-reply {
-  background-color: rgba(255, 255, 255, 0.015);
-  border-left: 2px solid var(--text-dim);
-  padding: 2px 6px;
-  margin: 1px 0;
+  /* background-color: rgba(255, 255, 255, 0.015); */
+  /* border-left: 2px solid var(--text-dim); */
+  padding: 0px 2px;
+  margin: -3px 0 2px;
   cursor: pointer;
   user-select: none;
 }
@@ -313,7 +313,6 @@ body.dark-theme {
 .collapsed-placeholder {
   font-size: 0.78em;
   color: var(--text-dim);
-  font-style: italic;
   display: inline-flex;
   align-items: center;
   gap: 6px;
