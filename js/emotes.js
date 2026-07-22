@@ -16,6 +16,7 @@ class EmoteManager {
       'vip/1': 'https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/1',
       'partner/1': 'https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab77-b780518f00a3/1',
       'premium/1': 'https://static-cdn.jtvnw.net/badges/v1/bbbe0db0-a598-423e-86d0-f9fb98ca1933/1',
+      'subscriber/0': 'https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/1',
       'subscriber/1': 'https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/1',
       'founder/0': 'https://static-cdn.jtvnw.net/badges/v1/52467d0f-4856-4ec8-8889-1065c786c57f/1'
     };
@@ -51,10 +52,39 @@ class EmoteManager {
             });
           }
         });
-        console.log(`[MultiChat Badges] Loaded ${this.badgeMap.size} Twitch badges.`);
+        console.log(`[MultiChat Badges] Loaded ${this.badgeMap.size} global Twitch badges.`);
       }
     } catch (e) {
       console.warn('[Badges] Failed to load Twitch global badges:', e.message);
+    }
+  }
+
+  /**
+   * Fetch Channel-specific subscriber badges from IVR API (1m, 6m, 12m, 24m, etc.)
+   */
+  async fetchTwitchChannelBadges(twitchUserId) {
+    if (!twitchUserId) return;
+    try {
+      const res = await fetch(`https://api.ivr.fi/v2/twitch/badges/channel?id=${encodeURIComponent(twitchUserId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        let count = 0;
+        data.forEach(set => {
+          if (set.set_id && Array.isArray(set.versions)) {
+            set.versions.forEach(v => {
+              if (v.id && (v.image_url_1x || v.image_url_2x)) {
+                const key = set.set_id + '/' + v.id;
+                this.badgeMap.set(key, v.image_url_1x || v.image_url_2x);
+                count++;
+              }
+            });
+          }
+        });
+        console.log(`[MultiChat Badges] Loaded ${count} channel subscriber badges for Twitch User ID: ${twitchUserId}`);
+      }
+    } catch (e) {
+      console.warn('[Badges] Failed channel badges fetch:', e.message);
     }
   }
 
@@ -72,7 +102,7 @@ class EmoteManager {
   }
 
   /**
-   * Fetch channel-specific emotes for Twitch / Kick channels
+   * Fetch channel-specific emotes & badges for Twitch / Kick channels
    */
   async loadChannelEmotes(twitchChannel, kickChannel) {
     if (twitchChannel && !this.loadedChannels.has('twitch:' + twitchChannel)) {
@@ -149,7 +179,7 @@ class EmoteManager {
     }
   }
 
-  // --- Twitch Channel Emotes ---
+  // --- Twitch Channel Emotes & Badges ---
   async fetchTwitchChannelEmotes(channelName) {
     try {
       const cleanChannel = channelName.replace(/^@+/, '').trim().toLowerCase();
@@ -164,6 +194,9 @@ class EmoteManager {
       }
 
       console.log(`[Twitch Emotes] Resolved ${cleanChannel} -> Twitch User ID: ${twitchUserId}`);
+
+      // Load channel subscriber badges asynchronously
+      this.fetchTwitchChannelBadges(twitchUserId).catch(() => {});
 
       await Promise.allSettled([
         fetch(`https://7tv.io/v3/users/twitch/${twitchUserId}`)
@@ -234,14 +267,14 @@ class EmoteManager {
   }
 
   /**
-   * Render User Badges HTML (Parses ALL user badges for Twitch & Kick)
+   * Render User Badges HTML wrapped in parent <span class="msg-badges"> container
    */
   getBadgesHTML(msg) {
     if (!msg || !msg.badges) return '';
 
     let badgeUrls = [];
 
-    // 1. Twitch Badges Parsing (renders ALL badges present in tags, e.g. "broadcaster/1,subscriber/12,partner/1")
+    // 1. Twitch Badges Parsing (renders ALL badges, e.g. "broadcaster/1,subscriber/12,partner/1")
     if (msg.platform === 'twitch') {
       let badgeTokens = [];
       if (typeof msg.badges === 'string') {
@@ -251,7 +284,7 @@ class EmoteManager {
       }
 
       badgeTokens.forEach(token => {
-        // Direct match (e.g. "broadcaster/1", "subscriber/12")
+        // Direct match (e.g. "broadcaster/1", "subscriber/12", "subscriber/36")
         let url = this.badgeMap.get(token) || this.defaultTwitchBadges[token];
         
         // Fallback to base set_id (e.g. "subscriber/1" or "subscriber/0")
@@ -291,11 +324,14 @@ class EmoteManager {
 
     if (badgeUrls.length === 0) return '';
 
-    return badgeUrls.map(b => {
+    const imgTagsHTML = badgeUrls.map(b => {
       const cleanUrl = this.escapeAttr(b.url);
       const cleanTitle = this.escapeAttr(b.title);
       return `<img class="chat-badge" src="${cleanUrl}" alt="${cleanTitle}" title="${cleanTitle}">`;
     }).join('');
+
+    // WRAP ALL BADGES IN PARENT CONTAINER <span class="msg-badges">
+    return `<span class="msg-badges">${imgTagsHTML}</span>`;
   }
 
   /**

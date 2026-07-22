@@ -206,13 +206,10 @@ body.dark-theme {
   display: none !important;
 }
 
-/* Parent Header Element wrapping Platform Icon, User Badges, Nickname, and Colon */
+/* Parent Header Element wrapping Platform Icon, User Badges Container, Nickname, and Colon */
 .msg-header {
   display: inline;
-  align-items: center;
-  gap: 4px;
   margin-right: 4px;
-  vertical-align: baseline;
   user-select: none;
 }
 
@@ -221,14 +218,16 @@ body.dark-theme {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   border-radius: 3px;
   font-size: 0.65em;
   font-weight: 700;
   text-transform: uppercase;
   flex-shrink: 0;
   vertical-align: middle;
+  margin-right: 4px;
+  margin-top: -3px;
 }
 
 .msg-platform.twitch {
@@ -252,12 +251,21 @@ body.dark-theme {
   color: #fff;
 }
 
-/* User Role Badges (Moderator, VIP, Sub, Broadcaster, etc.) */
+/* Parent Container Wrapping User Role Badges */
+.msg-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  margin-top: -3px;
+}
+
+/* User Role Badges (Moderator, VIP, Sub 1m/6m/12m/24m, Broadcaster, etc.) */
 .chat-badge {
   height: 14px;
   width: 14px;
   vertical-align: middle;
-  margin-right: 1px;
   display: inline-block;
   border-radius: 2px;
 }
@@ -312,6 +320,7 @@ body.dark-theme {
 }
 
 .collapsed-placeholder::after {
+  display: none;
   content: '▼ (нажмите, чтобы развернуть)';
   font-size: 0.75em;
   opacity: 0.6;
