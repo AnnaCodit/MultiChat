@@ -16,12 +16,20 @@ async function fetchWithCorsProxy(url) {
     }
   }
 
-  // 1. AllOrigins JSON Endpoint (/get) returns HTTP 200 with { contents: "..." }, preventing red CORS/520 console errors
+  const encodedUrl = encodeURIComponent(url);
+
+  // 1. Corsproxy.io (быстрый и надежный публичный прокси)
   try {
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+    const res = await fetch(`https://corsproxy.io/?${encodedUrl}`);
+    if (res && res.ok) return res;
+  } catch (e) {}
+
+  // 2. AllOrigins JSON Endpoint (/get) - возвращает 200 OK с { contents: "..." }
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodedUrl}`);
     if (res.ok) {
       const data = await res.json();
-      if (data && typeof data.contents === 'string') {
+      if (data && typeof data.contents === 'string' && data.contents.length > 0) {
         return new Response(data.contents, {
           status: 200,
           headers: { 'Content-Type': 'text/html' }
@@ -30,9 +38,15 @@ async function fetchWithCorsProxy(url) {
     }
   } catch (e) {}
 
-  // 2. Codetabs proxy fallback
+  // 3. AllOrigins Raw Endpoint
   try {
-    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+    const res = await fetch(`https://api.allorigins.win/raw?url=${encodedUrl}`);
+    if (res && res.ok) return res;
+  } catch (e) {}
+
+  // 4. Codetabs proxy fallback
+  try {
+    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`);
     if (res && res.ok) return res;
   } catch (e) {}
 

@@ -39,7 +39,7 @@ class MultiChatApp {
       text: 'Привет! Чат подключен и готов к работе 🚀'
     });
 
-    // Demonstration Kick message with Kick Broadcaster badge
+    // Demonstration Kick message with Kick Broadcaster badge (First message today)
     this.handleIncomingMessage({
       platform: 'kick',
       author: 'fra3a',
@@ -48,12 +48,21 @@ class MultiChatApp {
       text: 'Проверяем выведение цветных никнеймов и всех значков модераторов и стримеров.'
     });
 
+    // Demonstration Twitch message from a brand new first-time chatter EVER on channel
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'NewStreamViewer',
+      color: '#00f5d4',
+      tags: { 'first-msg': '1' },
+      text: 'Всем привет! Я впервые зашёл на этот стрим, рад познакомиться! 👋'
+    });
+
     // Demonstration VK Live message
     this.handleIncomingMessage({
       platform: 'vklive',
       author: 'Анна',
       color: '#e056fd',
-      text: 'Это длинное тестовое сообщение для проверки переноса нескольких строк текста, шрифтов, отображения никнеймов и плашек платформ. Всё отображается отлично!'
+      text: 'Это тестовое сообщение для проверки подсветок и работы нескольких платформ одновременно. Всё отображается отлично!'
     });
   }
 
@@ -168,24 +177,42 @@ class MultiChatApp {
     // Evaluate chatter reply filter
     const shouldCollapse = this.filter.shouldCollapseReply(msg, streamerNicknames, hideRepliesEnabled);
 
+    // Evaluate first-time chatter status
+    const firstStatus = window.chatterTracker ? window.chatterTracker.processMessage(msg) : { isFirstTimeEver: false, isFirstToday: false };
+
     // Format HTML content with emote parser (including Twitch native emote tags)
     const twitchEmotesTag = (msg.tags && msg.tags.emotes) ? msg.tags.emotes : null;
     const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag);
 
     // Render DOM node
-    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse);
+    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus);
   }
 
-  renderMessageNode(msg, parsedTextHTML, shouldCollapse) {
+  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}) {
     const lineEl = document.createElement('div');
     lineEl.className = 'chat-line';
+
+    // Apply special highlight classes if first-time chatter
+    if (firstStatus.isFirstTimeEver) {
+      lineEl.classList.add('chat-line-first-ever');
+    } else if (firstStatus.isFirstToday) {
+      lineEl.classList.add('chat-line-first-today');
+    }
 
     const platformClass = msg.platform || 'twitch';
     const platformLabel = platformClass.charAt(0).toUpperCase();
     const escapedAuthor = this.escapeHTML(msg.author);
 
     // Badges HTML (Parses ALL user badges: Twitch & Kick)
-    const badgesHTML = this.emotes.getBadgesHTML(msg);
+    let badgesHTML = this.emotes.getBadgesHTML(msg);
+
+    // Append First-Time Chatter Badge if applicable
+    if (firstStatus.isFirstTimeEver) {
+      badgesHTML += `<span class="badge-first-ever" title="Пользователь впервые пишет на этом канале за всё время!">✨ Впервые в чате</span>`;
+    } else if (firstStatus.isFirstToday) {
+      const windowHours = this.settings.settings.firstMessageWindowHours || 12;
+      badgesHTML += `<span class="badge-first-today" title="Первое сообщение пользователя за последние ${windowHours}ч">☀️ 1-е за сегодня</span>`;
+    }
 
     // Custom user nickname color
     const authorStyle = msg.color ? `style="color: ${this.escapeHTML(msg.color)}"` : '';

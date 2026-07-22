@@ -129,6 +129,15 @@
               <span id="fontSizeVal">16px</span>
             </div>
           </section>
+          <!-- First Message Window Hours Option -->
+          <section class="settings-group">
+            <h3>Интервал первого сообщения</h3>
+            <p class="settings-hint">Считать сообщение первым за стрим, если зритель не писал в чат (в часах):</p>
+            <div class="form-row">
+              <input type="number" id="firstMessageWindowHours" min="1" max="168" value="12" style="width: 100px;">
+              <span style="font-size: 0.9em; color: var(--text-muted); margin-left: 8px;">часов</span>
+            </div>
+          </section>
         </form>
       </div>
       <div class="modal-footer">
@@ -139,6 +148,7 @@
   <!-- JavaScript Codebase -->
   <script src="js/utils.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/chatterTracker.js"></script>
   <script src="js/filter.js"></script>
   <script src="js/emotes.js"></script>
   <script src="js/connectors/twitch.js"></script>

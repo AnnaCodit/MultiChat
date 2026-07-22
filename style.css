@@ -550,3 +550,50 @@ input:checked+.slider:before {
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
 }
+
+/* First-Time Chatter Badges & Line Highlights */
+.badge-first-today {
+  background: rgba(255, 171, 0, 0.18);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.badge-first-ever {
+  background: linear-gradient(135deg, #e056fd, #686de0);
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(224, 86, 253, 0.5);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 700;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
+  animation: pulseFirstEver 2s infinite alternate;
+}
+
+@keyframes pulseFirstEver {
+  0% { box-shadow: 0 0 6px rgba(224, 86, 253, 0.4); }
+  100% { box-shadow: 0 0 14px rgba(224, 86, 253, 0.8); }
+}
+
+.chat-line-first-today {
+  border-left: 3px solid #ffc107;
+  background: rgba(255, 193, 7, 0.04);
+}
+
+.chat-line-first-ever {
+  border-left: 4px solid #e056fd;
+  background: linear-gradient(90deg, rgba(224, 86, 253, 0.15) 0%, rgba(224, 86, 253, 0.02) 100%);
+}

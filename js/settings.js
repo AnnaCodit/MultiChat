@@ -13,7 +13,8 @@ const defaultSettings = {
   extraNicknames: '',
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
-  fontSize: 16
+  fontSize: 16,
+  firstMessageWindowHours: 12
 };
 
 class SettingsManager {
@@ -85,12 +86,18 @@ class SettingsManager {
     
     document.getElementById('fontSizeRange').value = this.settings.fontSize || 16;
     document.getElementById('fontSizeVal').textContent = (this.settings.fontSize || 16) + 'px';
+
+    const windowInput = document.getElementById('firstMessageWindowHours');
+    if (windowInput) {
+      windowInput.value = this.settings.firstMessageWindowHours || 12;
+    }
   }
 
   /**
    * Read values from form inputs and update settings.
    */
   readForm() {
+    const windowInput = document.getElementById('firstMessageWindowHours');
     const newSettings = {
       twitchChannel: document.getElementById('twitchChannel').value.trim(),
       kickChannel: document.getElementById('kickChannel').value.trim(),
@@ -99,7 +106,8 @@ class SettingsManager {
       extraNicknames: document.getElementById('extraNicknames').value.trim(),
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
-      fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16
+      fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16,
+      firstMessageWindowHours: windowInput ? (parseInt(windowInput.value, 10) || 12) : 12
     };
     this.saveSettings(newSettings);
     return this.settings;
