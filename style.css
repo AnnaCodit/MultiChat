@@ -149,14 +149,15 @@ body.dark-theme {
 }
 
 .btn-icon {
-  background-color: var(--bg-card);
-  border-color: var(--border-color);
+  background-color: transparent;
+  /* border-color: var(--border-color); */
+  border: 0;
   color: var(--text-main);
-  padding: 6px;
+  padding: 0px;
 }
 
 .btn-icon:hover {
-  background-color: var(--bg-hover);
+  background-color: transparent;
 }
 
 .btn-primary {
@@ -612,8 +613,13 @@ input:checked+.slider:before {
 }
 
 @keyframes pulseFirstEver {
-  0% { box-shadow: 0 0 6px rgba(224, 86, 253, 0.4); }
-  100% { box-shadow: 0 0 14px rgba(224, 86, 253, 0.8); }
+  0% {
+    box-shadow: 0 0 6px rgba(224, 86, 253, 0.4);
+  }
+
+  100% {
+    box-shadow: 0 0 14px rgba(224, 86, 253, 0.8);
+  }
 }
 
 .chat-line-first-today {
