@@ -148,6 +148,9 @@ class TwitchConnector {
       const userColor = tags['color'] || null;
       const userBadges = tags['badges'] || null;
 
+      // Detect Channel Points custom reward redemption tag
+      const isRewardRedemption = !!(tags['custom-reward-id'] || (tags['msg-id'] && tags['msg-id'].includes('custom-reward')));
+
       this.onMessage({
         platform: 'twitch',
         author: author,
@@ -155,6 +158,7 @@ class TwitchConnector {
         color: userColor,
         badges: userBadges,
         replyTo: replyTo,
+        isRewardRedemption: isRewardRedemption,
         tags: tags
       });
     } catch (e) {

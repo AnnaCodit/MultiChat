@@ -3,13 +3,13 @@
  * Integrates Settings, EmoteManager, MessageFilter, Connectors, and DOM Rendering
  */
 
-const MAX_CHAT_MESSAGES = 200;
-
 class MultiChatApp {
   constructor() {
     this.settings = window.settingsManager;
     this.filter = window.messageFilter;
     this.emotes = window.emoteManager;
+
+    this.isAutoScrollEnabled = true;
 
     // Connectors
     this.twitch = new TwitchConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
@@ -22,7 +22,7 @@ class MultiChatApp {
 
     this.initUI();
 
-    // Add demonstration test messages (short, long, badges, colors)
+    // Add demonstration test messages (short, long, badges, colors, mentions)
     this.addDemoMessages();
 
     // Auto-connect to saved channels on page load!
@@ -57,12 +57,21 @@ class MultiChatApp {
       text: 'Всем привет! Я впервые зашёл на этот стрим, рад познакомиться! 👋'
     });
 
-    // Demonstration VK Live message
+    // Demonstration VK Live message with Streamer Mention
     this.handleIncomingMessage({
       platform: 'vklive',
       author: 'Анна',
       color: '#e056fd',
-      text: 'Это тестовое сообщение для проверки подсветок и работы нескольких платформ одновременно. Всё отображается отлично!'
+      text: 'Привет @fra3a! Сообщение с упоминанием стримера сразу выделяется яркой подсветкой 🔥'
+    });
+
+    // Demonstration Twitch message with Channel Points Reward Redemption
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'PointsEnjoyer',
+      color: '#94a3b8',
+      isRewardRedemption: true,
+      text: 'Активировал награду за баллы канала! Сообщение выводится сдержанным серым цветом 🎁'
     });
   }
 
@@ -100,6 +109,7 @@ class MultiChatApp {
         const updated = this.settings.readForm();
         modalEl.classList.add('hidden');
         this.applyFontSettings(updated.fontSize);
+        this.pruneExcessMessages();
         this.initEmotesAndConnect();
       });
     }
@@ -111,9 +121,18 @@ class MultiChatApp {
       });
     }
 
-    // Event Delegation for collapsed messages
+    // Scroll listener for smart auto-scroll toggling
+    if (this.chatContainerEl) {
+      this.chatContainerEl.addEventListener('scroll', () => {
+        const distanceToBottom = this.chatContainerEl.scrollHeight - this.chatContainerEl.scrollTop - this.chatContainerEl.clientHeight;
+        // Turn auto-scroll on only if user is at or near bottom (within 40px)
+        this.isAutoScrollEnabled = distanceToBottom <= 40;
+      });
+    }
+
+    // Event Delegation for collapsed messages (replies and reward spoilers)
     this.chatMessagesEl.addEventListener('click', (e) => {
-      const collapsedLine = e.target.closest('.collapsed-reply');
+      const collapsedLine = e.target.closest('.collapsed-reply, .collapsed-reward');
       if (collapsedLine) {
         collapsedLine.classList.toggle('expanded');
       }
@@ -177,6 +196,12 @@ class MultiChatApp {
     // Evaluate chatter reply filter
     const shouldCollapse = this.filter.shouldCollapseReply(msg, streamerNicknames, hideRepliesEnabled);
 
+    // Evaluate streamer mention highlight
+    const isMention = this.filter.isMentioningStreamer(msg, streamerNicknames);
+
+    // Evaluate Channel Points reward redemption status
+    const isReward = !!msg.isRewardRedemption || !!(msg.tags && msg.tags['custom-reward-id']);
+
     // Evaluate first-time chatter status
     const firstStatus = window.chatterTracker ? window.chatterTracker.processMessage(msg) : { isFirstTimeEver: false, isFirstToday: false };
 
@@ -185,14 +210,20 @@ class MultiChatApp {
     const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag);
 
     // Render DOM node
-    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus);
+    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward);
   }
 
-  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}) {
+  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false) {
     const lineEl = document.createElement('div');
     lineEl.className = 'chat-line';
 
-    // Apply special highlight classes if first-time chatter
+    // Apply special highlight classes
+    if (isReward) {
+      lineEl.classList.add('chat-line-reward');
+    } else if (isMention) {
+      lineEl.classList.add('chat-line-mention');
+    }
+
     if (firstStatus.isFirstTimeEver) {
       lineEl.classList.add('chat-line-first-ever');
     } else if (firstStatus.isFirstToday) {
@@ -206,6 +237,11 @@ class MultiChatApp {
     // Badges HTML (Parses ALL user badges: Twitch & Kick)
     let badgesHTML = this.emotes.getBadgesHTML(msg);
 
+    // Append Channel Points Reward Badge if applicable
+    if (isReward) {
+      badgesHTML += `<span class="badge-reward" title="Активация награды за баллы канала">🎁 Награда</span>`;
+    }
+
     // Append First-Time Chatter Badge if applicable
     if (firstStatus.isFirstTimeEver) {
       badgesHTML += `<span class="badge-first-ever" title="Пользователь впервые пишет на этом канале за всё время!">✨ Впервые в чате</span>`;
@@ -217,7 +253,19 @@ class MultiChatApp {
     // Custom user nickname color
     const authorStyle = msg.color ? `style="color: ${this.escapeHTML(msg.color)}"` : '';
 
-    if (shouldCollapse) {
+    if (isReward) {
+      // Collapsed Reward format with spoiler hint
+      lineEl.classList.add('collapsed-reward');
+      lineEl.innerHTML = `
+        <div class="collapsed-placeholder">
+          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span>
+          <span class="reward-spoiler-hint">▶ (нажмите, чтобы развернуть текст)</span>
+        </div>
+        <div class="collapsed-content">
+          <span class="msg-text">${parsedTextHTML}</span>
+        </div>
+      `;
+    } else if (shouldCollapse) {
       // Collapsed Chatter-to-Chatter Reply format (Clean placeholder without platform badge)
       lineEl.classList.add('collapsed-reply');
       lineEl.innerHTML = `
@@ -235,12 +283,20 @@ class MultiChatApp {
 
     this.chatMessagesEl.appendChild(lineEl);
 
-    // Limit DOM messages count to prevent memory leaks in long streams
-    while (this.chatMessagesEl.children.length > MAX_CHAT_MESSAGES) {
+    // Limit DOM messages count based on maxChatMessages configuration
+    this.pruneExcessMessages();
+
+    // Auto scroll down only if auto-scroll is currently active
+    if (this.isAutoScrollEnabled) {
+      this.scrollToBottom();
+    }
+  }
+
+  pruneExcessMessages() {
+    const maxMessages = this.settings.settings.maxChatMessages || 200;
+    while (this.chatMessagesEl.children.length > maxMessages) {
       this.chatMessagesEl.removeChild(this.chatMessagesEl.firstChild);
     }
-
-    this.scrollToBottom();
   }
 
   scrollToBottom() {

@@ -68,6 +68,22 @@ class MessageFilter {
     return false;
   }
 
+  /**
+   * Checks if a message mentions any streamer nickname/handle.
+   * @param {Object} msg - The message object
+   * @param {Array<string>} streamerNicknames - List of lowercased streamer nicknames/handles
+   * @returns {boolean} true if message mentions the streamer
+   */
+  isMentioningStreamer(msg, streamerNicknames = []) {
+    if (!msg || !msg.text || !streamerNicknames.length) return false;
+    const textLower = msg.text.toLowerCase();
+    return streamerNicknames.some(nick => {
+      if (!nick) return false;
+      const pattern = new RegExp(`(?:^|\\s|@)${this.escapeRegExp(nick)}(?:$|\\s|[.,!?])`, 'i');
+      return pattern.test(textLower);
+    });
+  }
+
   escapeRegExp(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }

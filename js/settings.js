@@ -14,7 +14,8 @@ const defaultSettings = {
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
   fontSize: 16,
-  firstMessageWindowHours: 12
+  firstMessageWindowHours: 12,
+  maxChatMessages: 200
 };
 
 class SettingsManager {
@@ -91,6 +92,11 @@ class SettingsManager {
     if (windowInput) {
       windowInput.value = this.settings.firstMessageWindowHours || 12;
     }
+
+    const maxMessagesInput = document.getElementById('maxChatMessages');
+    if (maxMessagesInput) {
+      maxMessagesInput.value = this.settings.maxChatMessages || 200;
+    }
   }
 
   /**
@@ -98,6 +104,7 @@ class SettingsManager {
    */
   readForm() {
     const windowInput = document.getElementById('firstMessageWindowHours');
+    const maxMessagesInput = document.getElementById('maxChatMessages');
     const newSettings = {
       twitchChannel: document.getElementById('twitchChannel').value.trim(),
       kickChannel: document.getElementById('kickChannel').value.trim(),
@@ -107,7 +114,8 @@ class SettingsManager {
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
       fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16,
-      firstMessageWindowHours: windowInput ? (parseInt(windowInput.value, 10) || 12) : 12
+      firstMessageWindowHours: windowInput ? (parseInt(windowInput.value, 10) || 12) : 12,
+      maxChatMessages: maxMessagesInput ? (parseInt(maxMessagesInput.value, 10) || 200) : 200
     };
     this.saveSettings(newSettings);
     return this.settings;
