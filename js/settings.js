@@ -46,6 +46,19 @@ class SettingsManager {
   }
 
   /**
+   * Returns true if at least one platform channel is configured.
+   */
+  hasAnyChannelConfigured() {
+    const s = this.settings;
+    return !!(
+      (s.twitchChannel && s.twitchChannel.trim()) ||
+      (s.kickChannel && s.kickChannel.trim()) ||
+      (s.vkChannel && s.vkChannel.trim()) ||
+      (s.youtubeChannel && s.youtubeChannel.trim())
+    );
+  }
+
+  /**
    * Returns a normalized array of all streamer nicknames
    * (channel names from all platforms + extra nicknames), stripping leading '@'.
    */

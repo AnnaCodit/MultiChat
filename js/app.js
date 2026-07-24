@@ -86,8 +86,7 @@ class MultiChatApp {
 
     if (openBtn) {
       openBtn.addEventListener('click', () => {
-        this.settings.populateForm();
-        modalEl.classList.remove('hidden');
+        this.openSettingsModal();
       });
     }
 
@@ -139,6 +138,19 @@ class MultiChatApp {
     });
 
     this.applyFontSettings(this.settings.settings.fontSize);
+
+    // Auto-open settings modal if no channel address is specified
+    if (!this.settings.hasAnyChannelConfigured()) {
+      this.openSettingsModal();
+    }
+  }
+
+  openSettingsModal() {
+    const modalEl = document.getElementById('settingsModal');
+    if (modalEl) {
+      this.settings.populateForm();
+      modalEl.classList.remove('hidden');
+    }
   }
 
   applyFontSettings(sizePx) {
