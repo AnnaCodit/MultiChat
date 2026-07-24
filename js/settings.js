@@ -27,7 +27,21 @@ class SettingsManager {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return { ...defaultSettings, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        const settings = { ...defaultSettings, ...parsed };
+        const stringFields = [
+          'twitchChannel',
+          'kickChannel',
+          'vkChannel',
+          'youtubeChannel',
+          'extraNicknames'
+        ];
+        stringFields.forEach(field => {
+          if (typeof settings[field] !== 'string') {
+            settings[field] = defaultSettings[field] || '';
+          }
+        });
+        return settings;
       }
     } catch (e) {
       console.error('[MultiChat Settings] Error reading settings from localStorage:', e);
@@ -46,27 +60,41 @@ class SettingsManager {
   }
 
   /**
+   * Returns true if at least one platform channel is configured.
+   */
+  hasAnyChannelConfigured() {
+    const s = this.settings;
+    return [
+      s.twitchChannel,
+      s.kickChannel,
+      s.vkChannel,
+      s.youtubeChannel
+    ].some(channel => typeof channel === 'string' && channel.trim().length > 0);
+  }
+
+  /**
    * Returns a normalized array of all streamer nicknames
    * (channel names from all platforms + extra nicknames), stripping leading '@'.
    */
   getStreamerNicknames() {
     const names = new Set();
     
-    const cleanNick = (str) => (str || '').toLowerCase().trim().replace(/^@+/, '');
+    const cleanNick = (str) => (typeof str === 'string' ? str : '').toLowerCase().trim().replace(/^@+/, '');
+    const addIfNotEmpty = (str) => {
+      const cleaned = cleanNick(str);
+      if (cleaned) names.add(cleaned);
+    };
 
     // Add channel names
-    if (this.settings.twitchChannel) names.add(cleanNick(this.settings.twitchChannel));
-    if (this.settings.kickChannel) names.add(cleanNick(this.settings.kickChannel));
-    if (this.settings.vkChannel) names.add(cleanNick(this.settings.vkChannel));
-    if (this.settings.youtubeChannel) names.add(cleanNick(this.settings.youtubeChannel));
+    addIfNotEmpty(this.settings.twitchChannel);
+    addIfNotEmpty(this.settings.kickChannel);
+    addIfNotEmpty(this.settings.vkChannel);
+    addIfNotEmpty(this.settings.youtubeChannel);
 
     // Add extra nicknames
-    if (this.settings.extraNicknames) {
+    if (typeof this.settings.extraNicknames === 'string' && this.settings.extraNicknames) {
       const extraList = this.settings.extraNicknames.split(',');
-      extraList.forEach(n => {
-        const cleaned = cleanNick(n);
-        if (cleaned) names.add(cleaned);
-      });
+      extraList.forEach(n => addIfNotEmpty(n));
     }
 
     return Array.from(names);
