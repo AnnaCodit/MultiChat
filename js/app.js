@@ -73,6 +73,14 @@ class MultiChatApp {
       isRewardRedemption: true,
       text: 'Активировал награду за баллы канала! Сообщение выводится сдержанным серым цветом 🎁'
     });
+
+    // Demonstration Twitch message with bright blue nickname (auto-mapped to rgb(153, 153, 255))
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'BlueViewer',
+      color: 'rgb(0, 0, 255)',
+      text: 'Проверка чтения ника: ярко-синий цвет автоматически заменён на доступный мягкий rgb(153, 153, 255)! 💙'
+    });
   }
 
   initUI() {
@@ -262,8 +270,9 @@ class MultiChatApp {
       badgesHTML += `<span class="badge-first-today" title="Первое сообщение пользователя за последние ${windowHours}ч">☀️ 1-е за сегодня</span>`;
     }
 
-    // Custom user nickname color
-    const authorStyle = msg.color ? `style="color: ${this.escapeHTML(msg.color)}"` : '';
+    // Custom user nickname color (with unreadable bright blue remapped to rgb(153, 153, 255))
+    const authorColor = this.normalizeColor(msg.color);
+    const authorStyle = authorColor ? `style="color: ${this.escapeHTML(authorColor)}"` : '';
 
     if (isReward) {
       // Collapsed Reward format with spoiler hint
@@ -313,6 +322,25 @@ class MultiChatApp {
 
   scrollToBottom() {
     this.chatContainerEl.scrollTop = this.chatContainerEl.scrollHeight;
+  }
+
+  normalizeColor(color) {
+    if (!color) return null;
+    const cleanColor = String(color).trim().toLowerCase();
+    const compactColor = cleanColor.replace(/\s+/g, '');
+
+    // Replace unreadable bright blue rgb(0, 0, 255) / #0000ff / #00f / blue with readable rgb(153, 153, 255)
+    if (
+      compactColor === '#0000ff' ||
+      compactColor === '#00f' ||
+      compactColor === 'blue' ||
+      compactColor === 'rgb(0,0,255)' ||
+      compactColor === 'rgba(0,0,255,1)'
+    ) {
+      return 'rgb(153, 153, 255)';
+    }
+
+    return color;
   }
 
   escapeHTML(str) {
