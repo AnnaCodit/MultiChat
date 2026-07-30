@@ -208,7 +208,12 @@ class MultiChatApp {
   }
 
   handleIncomingMessage(msg) {
-    if (!msg || !msg.text) return;
+    if (!msg) return;
+    if (msg.isDeleted || msg.isAuthorDeleted) {
+      this.markDeletedMessages(msg);
+      return;
+    }
+    if (!msg.text) return;
 
     const streamerNicknames = this.settings.getStreamerNicknames();
     const hideRepliesEnabled = this.settings.settings.hideChatterReplies;
@@ -227,15 +232,34 @@ class MultiChatApp {
 
     // Format HTML content with emote parser (including Twitch native emote tags)
     const twitchEmotesTag = (msg.tags && msg.tags.emotes) ? msg.tags.emotes : null;
-    const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag);
+    const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag, msg.nativeEmotes);
 
     // Render DOM node
     this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward);
   }
 
+  markDeletedMessages(msg) {
+    Array.from(this.chatMessagesEl.children).forEach((lineEl) => {
+      const matchesMessage = msg.isDeleted
+        && msg.id
+        && lineEl.dataset.messageId === String(msg.id);
+      const matchesAuthor = msg.isAuthorDeleted
+        && msg.authorId
+        && lineEl.dataset.authorId === String(msg.authorId);
+
+      if (matchesMessage || matchesAuthor) {
+        lineEl.classList.add('chat-line-deleted');
+        lineEl.dataset.deletedOnYoutube = 'true';
+        lineEl.title = 'Сообщение удалено на YouTube';
+      }
+    });
+  }
+
   renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false) {
     const lineEl = document.createElement('div');
     lineEl.className = 'chat-line';
+    if (msg.id) lineEl.dataset.messageId = String(msg.id);
+    if (msg.authorId) lineEl.dataset.authorId = String(msg.authorId);
 
     // Apply special highlight classes
     if (isReward) {

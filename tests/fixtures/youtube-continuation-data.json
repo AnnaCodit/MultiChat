@@ -1,0 +1,61 @@
+{
+  "continuationContents": {
+    "liveChatContinuation": {
+      "continuations": [
+        {
+          "timedContinuationData": {
+            "continuation": "continuation-B",
+            "timeoutMs": 3500
+          }
+        }
+      ],
+      "actions": [
+        {
+          "markChatItemAsDeletedAction": {
+            "targetItemId": "deleted-message"
+          }
+        },
+        {
+          "addChatItemAction": {
+            "item": {
+              "liveChatTextMessageRenderer": {
+                "id": "text-1",
+                "timestampUsec": "1000000",
+                "authorName": {
+                  "simpleText": "@viewer"
+                },
+                "message": {
+                  "runs": [
+                    {
+                      "text": "Дубликат"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "replaceChatItemAction": {
+            "replacementItem": {
+              "liveChatTextMessageRenderer": {
+                "id": "text-2",
+                "timestampUsec": "5000000",
+                "authorName": {
+                  "simpleText": "@another-viewer"
+                },
+                "message": {
+                  "runs": [
+                    {
+                      "text": "@name.with-dots привет"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

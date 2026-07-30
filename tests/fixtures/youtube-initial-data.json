@@ -1,0 +1,161 @@
+{
+  "contents": {
+    "liveChatRenderer": {
+      "header": {
+        "liveChatHeaderRenderer": {
+          "viewSelector": {
+            "sortFilterSubMenuRenderer": {
+              "subMenuItems": [
+                {
+                  "title": "Top chat",
+                  "selected": true,
+                  "continuation": {
+                    "reloadContinuationData": {
+                      "continuation": "top-chat-filter"
+                    }
+                  }
+                },
+                {
+                  "title": "Live chat",
+                  "selected": false,
+                  "continuation": {
+                    "reloadContinuationData": {
+                      "continuation": "live-chat-filter"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "continuations": [
+        {
+          "invalidationContinuationData": {
+            "continuation": "continuation-A",
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "actions": [
+        {
+          "addChatItemAction": {
+            "item": {
+              "liveChatTextMessageRenderer": {
+                "id": "text-1",
+                "timestampUsec": "1000000",
+                "authorExternalChannelId": "channel-1",
+                "authorName": {
+                  "simpleText": "@viewer"
+                },
+                "authorBadges": [
+                  {
+                    "liveChatAuthorBadgeRenderer": {
+                      "customThumbnail": {
+                        "thumbnails": [
+                          {
+                            "url": "https://yt3.ggpht.com/member-badge"
+                          }
+                        ]
+                      },
+                      "tooltip": "Member"
+                    }
+                  }
+                ],
+                "message": {
+                  "runs": [
+                    {
+                      "text": "Привет <b> "
+                    },
+                    {
+                      "emoji": {
+                        "shortcuts": [
+                          ":party:"
+                        ],
+                        "image": {
+                          "thumbnails": [
+                            {
+                              "url": "https://yt3.ggpht.com/youtube-emoji"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "addChatItemAction": {
+            "item": {
+              "liveChatPaidMessageRenderer": {
+                "id": "paid-1",
+                "timestampUsec": "2000000",
+                "authorName": {
+                  "simpleText": "@supporter"
+                },
+                "purchaseAmountText": {
+                  "simpleText": "$5.00"
+                },
+                "message": {
+                  "runs": [
+                    {
+                      "text": "Отличный стрим!"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "addChatItemAction": {
+            "item": {
+              "liveChatMembershipItemRenderer": {
+                "id": "membership-1",
+                "timestampUsec": "3000000",
+                "authorName": {
+                  "simpleText": "@member"
+                },
+                "headerSubtext": {
+                  "runs": [
+                    {
+                      "text": "Участник уже 2 месяца"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "addChatItemAction": {
+            "item": {
+              "liveChatPaidStickerRenderer": {
+                "id": "sticker-1",
+                "timestampUsec": "4000000",
+                "authorName": {
+                  "simpleText": "@sticker"
+                },
+                "purchaseAmountText": {
+                  "simpleText": "100 ₽"
+                }
+              }
+            }
+          }
+        },
+        {
+          "addChatItemAction": {
+            "item": {
+              "liveChatPlaceholderItemRenderer": {
+                "id": "placeholder-1"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

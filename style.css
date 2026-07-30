@@ -230,6 +230,17 @@ body.dark-theme {
   background-color: rgba(255, 255, 255, 0.02);
 }
 
+.chat-line.chat-line-deleted,
+.chat-line.chat-line-deleted .msg-author,
+.chat-line.chat-line-deleted .msg-colon,
+.chat-line.chat-line-deleted .msg-text {
+  color: #7d8590 !important;
+}
+
+.chat-line.chat-line-deleted {
+  opacity: 0.72;
+}
+
 /* Complete removal of system-line elements */
 .chat-line.system-line {
   display: none !important;

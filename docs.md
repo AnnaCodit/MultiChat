@@ -15,11 +15,17 @@
   - `twitch.js` — WebSocket IRC клиент Twitch (`wss://irc-ws.chat.twitch.tv:443`) с поддержкой IRC tags.
   - `kick.js` — WebSocket Pusher клиент Kick (`wss://ws-us2.pusher.com`).
   - `vklive.js` — WebSocket Centrifugo клиент VK Play Live (`wss://pubsub.vkplay.live`) + Polling fallback.
-  - `youtube.js` — Поток live-чата YouTube по хэндлу/ссылке или Video ID.
+  - `youtube.js` — Поток live-чата YouTube по хэндлу, URL канала или Video ID. Получает initial data из публичной страницы, переключается с Top Chat на полный Live Chat и последовательно обходит GET continuation без API-ключа.
 - `js/app.js` — Главный оркестратор приложения, обработка входящих сообщений и рендеринг DOM.
+- `tests/` — Node.js fixture-тесты YouTube initial/continuation payload и проверки безопасного HTML-рендеринга.
+- `package.json` — Команда `npm test` для запуска тестов без дополнительных зависимостей.
 
 ## Инструкции для разработчиков
 - Для использования `proxy.php` проект нужно открывать через веб-сервер с PHP и расширением cURL. Вызов: `proxy.php?url=https%3A%2F%2Fwww.youtube.com%2F%40channel%2Flive`. Чтобы разрешить новую платформу, добавьте её доменный суффикс в `ALLOWED_HOST_SUFFIXES`.
+- Транспорт прокси пока не переработан: фронтенд продолжает использовать публичные CORS-прокси из `fetchWithCorsProxy`, а `proxy.php` автоматически не подключён.
+- YouTube-коннектор поддерживает обычные сообщения, Super Chat, Super Sticker, memberships, YouTube emoji, пользовательские бейджи, дедупликацию, request timeout, backoff и отмену устаревших сессий. Если YouTube сообщает об удалении сообщения, локальная строка сохраняется и только помечается CSS-классом `chat-line-deleted`.
+- Любой текст чата считается недоверенным: `EmoteManager.parseEmotes` сначала заменяет разрешённые HTTPS-изображения на внутренние placeholder-ы, экранирует остальной текст и только затем формирует HTML.
+- После изменений коннекторов или рендеринга запускать `npm test`.
 - Все настройки хранятся в `localStorage` по ключу `multichat_settings`.
 - Сообщения, адресованные стримеру (названия каналов + доп. ники из настроек), **никогда не скрываются**.
 - Плашка `[чаттерсы общаются]` является кликабельной и разворачивается для просмотра исходного текста.

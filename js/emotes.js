@@ -4,7 +4,7 @@
  */
 
 class EmoteManager {
-  constructor() {
+  constructor(options = {}) {
     this.emoteMap = new Map(); // token -> imageUrl
     this.badgeMap = new Map(); // set_id/version -> imageUrl
     this.loadedChannels = new Set();
@@ -21,8 +21,11 @@ class EmoteManager {
       'founder/0': 'https://static-cdn.jtvnw.net/badges/v1/52467d0f-4856-4ec8-8889-1065c786c57f/1'
     };
 
-    // Load Twitch global badges asynchronously
-    this.loadGlobalBadges().catch(() => {});
+    // Load Twitch global badges asynchronously in the browser. Tests can
+    // disable the network side effect with { loadGlobalBadges: false }.
+    if (options.loadGlobalBadges !== false) {
+      this.loadGlobalBadges().catch(() => {});
+    }
   }
 
   /**
@@ -322,6 +325,16 @@ class EmoteManager {
       });
     }
 
+    // 3. YouTube badges with custom thumbnails (memberships and similar roles).
+    if (msg.platform === 'youtube' && Array.isArray(msg.badges)) {
+      msg.badges.forEach(b => {
+        if (b && b.url) {
+          badgeUrls.push({ url: b.url, title: b.title || 'YouTube badge' });
+        }
+      });
+    }
+
+    badgeUrls = badgeUrls.filter(b => this.isSafeImageUrl(b.url));
     if (badgeUrls.length === 0) return '';
 
     const imgTagsHTML = badgeUrls.map(b => {
@@ -335,125 +348,133 @@ class EmoteManager {
   }
 
   /**
-   * Parse Twitch native emotes tag
-   */
-  parseTwitchNativeEmotes(text, emotesTag) {
-    if (!text || !emotesTag) return text;
-
-    try {
-      const emoteGroups = emotesTag.split('/');
-      const replacements = [];
-
-      emoteGroups.forEach(group => {
-        const [emoteId, positionStr] = group.split(':');
-        if (!emoteId || !positionStr) return;
-
-        const positions = positionStr.split(',');
-        positions.forEach(pos => {
-          const [startStr, endStr] = pos.split('-');
-          const start = parseInt(startStr, 10);
-          const end = parseInt(endStr, 10);
-
-          if (!isNaN(start) && !isNaN(end) && start <= end && end < text.length) {
-            const emoteCode = text.substring(start, end + 1);
-            replacements.push({
-              start,
-              end,
-              code: emoteCode,
-              url: `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/1.0`
-            });
-          }
-        });
-      });
-
-      replacements.sort((a, b) => b.start - a.start);
-
-      let result = text;
-      replacements.forEach(({ start, end, code, url }) => {
-        const escapedCode = this.escapeAttr(code);
-        const imgTag = `<img class="chat-emote" src="${url}" alt="${escapedCode}" title="${escapedCode}" loading="lazy">`;
-        result = result.substring(0, start) + imgTag + result.substring(end + 1);
-      });
-
-      return result;
-    } catch (e) {
-      console.error('[Emotes] Error parsing Twitch native emotes:', e);
-      return text;
-    }
-  }
-
-  /**
-   * Parse Kick native emotes tag (e.g. "[emote:87361:KEWWL]")
-   */
-  parseKickNativeEmotes(text) {
-    if (!text || typeof text !== 'string') return text;
-    return text.replace(/\[emote:(\d+):([\w-]+)\]/g, (match, id, name) => {
-      const cleanName = this.escapeAttr(name);
-      return `<img class="chat-emote" src="https://files.kick.com/emotes/${id}/fullsize" alt="${cleanName}" title="${cleanName}" loading="lazy">`;
-    });
-  }
-
-  /**
    * Parse text message HTML, replacing native & 3rd party emotes with <img> elements
    */
-  parseEmotes(text, twitchEmotesTag = null) {
+  parseEmotes(text, twitchEmotesTag = null, nativeEmotes = []) {
     if (!text) return '';
 
-    let processedText = this.parseKickNativeEmotes(text);
+    let processedText = String(text);
+    let placeholderPrefix = '\uE000MC_EMOTE_';
+    while (processedText.includes(placeholderPrefix)) placeholderPrefix += '_';
 
-    if (twitchEmotesTag) {
-      processedText = this.parseTwitchNativeEmotes(processedText, twitchEmotesTag);
-    }
+    const placeholders = [];
+    const reserveEmote = (url, code) => {
+      if (!this.isSafeImageUrl(url)) return code;
 
-    let safeHTML = processedText;
-    const hasNativeImgTags = processedText.includes('<img class="chat-emote"');
-    if (!hasNativeImgTags) {
-      safeHTML = processedText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    }
+      const token = `${placeholderPrefix}${placeholders.length}\uE001`;
+      const cleanUrl = this.escapeAttr(url);
+      const cleanCode = this.escapeAttr(code || 'emote');
+      placeholders.push({
+        token,
+        html: `<img class="chat-emote" src="${cleanUrl}" alt="${cleanCode}" title="${cleanCode}" loading="lazy">`
+      });
+      return token;
+    };
+
+    const replacements = this.getTwitchNativeEmotes(processedText, twitchEmotesTag)
+      .concat(this.normalizeNativeEmotes(nativeEmotes));
+    replacements.sort((a, b) => b.start - a.start);
+
+    let nextRangeStart = processedText.length;
+    replacements.forEach(({ start, end, code, url }) => {
+      if (start < 0 || end < start || end >= processedText.length || end >= nextRangeStart) return;
+
+      const token = reserveEmote(url, code || processedText.substring(start, end + 1));
+      processedText = processedText.substring(0, start) + token + processedText.substring(end + 1);
+      nextRangeStart = start;
+    });
+
+    // Convert Kick markup only to opaque placeholders. Every other character
+    // still goes through HTML escaping below.
+    processedText = processedText.replace(
+      /\[emote:(\d+):([\w-]+)\]/g,
+      (match, id, name) => reserveEmote(`https://files.kick.com/emotes/${id}/fullsize`, name)
+    );
 
     if (this.emoteMap.size > 0) {
-      const words = safeHTML.split(' ');
-      safeHTML = words.map(word => {
-        if (word.startsWith('<img') || word.includes('class="chat-emote"')) {
-          return word;
-        }
+      processedText = processedText.split(' ').map(word => {
+        if (word.includes(placeholderPrefix)) return word;
 
         if (this.emoteMap.has(word)) {
-          const rawUrl = this.emoteMap.get(word);
-          if (rawUrl && /^https?:\/\//i.test(rawUrl)) {
-            const cleanUrl = this.escapeAttr(rawUrl);
-            const cleanWord = this.escapeAttr(word);
-            return `<img class="chat-emote" src="${cleanUrl}" alt="${cleanWord}" title="${cleanWord}" loading="lazy">`;
-          }
+          return reserveEmote(this.emoteMap.get(word), word);
         }
 
         const cleanWordMatch = word.match(/^([^\w]*)([\w-]+)([^\w]*)$/);
-        if (cleanWordMatch) {
-          const [, prefix, bareWord, suffix] = cleanWordMatch;
-          if (this.emoteMap.has(bareWord)) {
-            const rawUrl = this.emoteMap.get(bareWord);
-            if (rawUrl && /^https?:\/\//i.test(rawUrl)) {
-              const cleanUrl = this.escapeAttr(rawUrl);
-              const cleanWord = this.escapeAttr(bareWord);
-              return `${prefix}<img class="chat-emote" src="${cleanUrl}" alt="${cleanWord}" title="${cleanWord}" loading="lazy">${suffix}`;
-            }
-          }
-        }
+        if (!cleanWordMatch) return word;
 
-        return word;
+        const [, prefix, bareWord, suffix] = cleanWordMatch;
+        if (!this.emoteMap.has(bareWord)) return word;
+        return `${prefix}${reserveEmote(this.emoteMap.get(bareWord), bareWord)}${suffix}`;
       }).join(' ');
     }
 
+    let safeHTML = this.escapeText(processedText);
+    placeholders.forEach(({ token, html }) => {
+      safeHTML = safeHTML.split(token).join(html);
+    });
     return safeHTML;
   }
 
+  getTwitchNativeEmotes(text, emotesTag) {
+    if (!text || !emotesTag) return [];
+
+    const replacements = [];
+    try {
+      emotesTag.split('/').forEach(group => {
+        const [emoteId, positionStr] = group.split(':');
+        if (!/^\d+$/.test(emoteId || '') || !positionStr) return;
+
+        positionStr.split(',').forEach(pos => {
+          const [startStr, endStr] = pos.split('-');
+          const start = Number.parseInt(startStr, 10);
+          const end = Number.parseInt(endStr, 10);
+          if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+
+          replacements.push({
+            start,
+            end,
+            code: text.substring(start, end + 1),
+            url: `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/1.0`
+          });
+        });
+      });
+    } catch (error) {
+      console.error('[Emotes] Error parsing Twitch native emotes:', error);
+    }
+    return replacements;
+  }
+
+  normalizeNativeEmotes(nativeEmotes) {
+    if (!Array.isArray(nativeEmotes)) return [];
+
+    return nativeEmotes.filter(emote => (
+      emote
+      && Number.isInteger(emote.start)
+      && Number.isInteger(emote.end)
+      && typeof emote.url === 'string'
+    ));
+  }
+
+  isSafeImageUrl(url) {
+    if (typeof url !== 'string') return false;
+    try {
+      return new URL(url).protocol === 'https:';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  escapeText(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   escapeAttr(str) {
-    return (str || '')
+    return String(str || '')
       .replace(/&/g, '&amp;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;')
@@ -462,5 +483,10 @@ class EmoteManager {
   }
 }
 
-// Global instance
-window.emoteManager = new EmoteManager();
+if (typeof window !== 'undefined') {
+  window.emoteManager = new EmoteManager();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = EmoteManager;
+}
