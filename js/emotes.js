@@ -422,7 +422,9 @@ class EmoteManager {
     try {
       emotesTag.split('/').forEach(group => {
         const [emoteId, positionStr] = group.split(':');
-        if (!/^\d+$/.test(emoteId || '') || !positionStr) return;
+        // Native Twitch IDs are not always numeric. Modern channel emotes can
+        // use IDs such as "emotesv2_abcd...", which must not be discarded.
+        if (!/^[a-zA-Z0-9_-]+$/.test(emoteId || '') || !positionStr) return;
 
         positionStr.split(',').forEach(pos => {
           const [startStr, endStr] = pos.split('-');
@@ -434,7 +436,7 @@ class EmoteManager {
             start,
             end,
             code: text.substring(start, end + 1),
-            url: `https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/1.0`
+            url: `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(emoteId)}/default/dark/1.0`
           });
         });
       });

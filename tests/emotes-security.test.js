@@ -37,6 +37,29 @@ test('YouTube native emoji is rendered from a validated HTTPS image URL', () => 
   assert.match(html, /alt=":party:"/);
 });
 
+test('modern non-numeric Twitch emote IDs render together with 7TV emotes', () => {
+  const manager = new EmoteManager({ loadGlobalBadges: false });
+  manager.emoteMap.set(
+    'фраза',
+    'https://cdn.7tv.app/emote/01JF0THNPHZPRTKHQM8ATS7BRJ/1x.webp'
+  );
+
+  const html = manager.parseEmotes(
+    'тест fra3aSpin фраза',
+    'emotesv2_fra3aSpin:5-13'
+  );
+
+  assert.match(
+    html,
+    /static-cdn\.jtvnw\.net\/emoticons\/v2\/emotesv2_fra3aSpin\/default\/dark\/1\.0/
+  );
+  assert.match(
+    html,
+    /cdn\.7tv\.app\/emote\/01JF0THNPHZPRTKHQM8ATS7BRJ\/1x\.webp/
+  );
+  assert.doesNotMatch(html, />fra3aSpin</);
+});
+
 test('unsafe badge and emote URLs are not rendered', () => {
   const manager = new EmoteManager({ loadGlobalBadges: false });
   const html = manager.parseEmotes('BAD', null, [
