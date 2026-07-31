@@ -391,7 +391,16 @@ class MultiChatApp {
   }
 }
 
-// Start Application on DOM Load
-window.addEventListener('DOMContentLoaded', () => {
-  window.app = new MultiChatApp();
-});
+// Dynamic cache-busted loading can finish after DOMContentLoaded, so start immediately
+// when the document is already ready and otherwise wait for the normal event.
+const startApplication = () => {
+  if (!window.app) {
+    window.app = new MultiChatApp();
+  }
+};
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', startApplication, { once: true });
+} else {
+  startApplication();
+}

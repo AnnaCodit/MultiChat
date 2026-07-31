@@ -11,7 +11,6 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
 </head>
 
 <body class="dark-theme">
@@ -168,17 +167,54 @@
       </div>
     </div>
   </div>
-  <!-- JavaScript Codebase -->
-  <script src="js/utils.js"></script>
-  <script src="js/settings.js"></script>
-  <script src="js/chatterTracker.js"></script>
-  <script src="js/filter.js"></script>
-  <script src="js/emotes.js"></script>
-  <script src="js/connectors/twitch.js"></script>
-  <script src="js/connectors/kick.js"></script>
-  <script src="js/connectors/vklive.js"></script>
-  <script src="js/connectors/youtube.js"></script>
-  <script src="js/app.js"></script>
+  <!-- Local assets receive one page-load version to avoid stale browser cache. -->
+  <script>
+    (function () {
+      const version = Date.now();
+
+      // Keep dependency order explicit: app.js depends on every file above it.
+      const cssFiles = [
+        'style.css'
+      ];
+      const jsFiles = [
+        'js/utils.js',
+        'js/settings.js',
+        'js/chatterTracker.js',
+        'js/filter.js',
+        'js/emotes.js',
+        'js/connectors/twitch.js',
+        'js/connectors/kick.js',
+        'js/connectors/vklive.js',
+        'js/connectors/youtube.js',
+        'js/app.js'
+      ];
+
+      const withVersion = (file) => `${file}?v=${version}`;
+
+      cssFiles.forEach((file) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = withVersion(file);
+        link.addEventListener('error', () => {
+          console.error(`[MultiChat Loader] Failed to load CSS: ${file}`);
+        });
+        document.head.appendChild(link);
+      });
+
+      jsFiles.forEach((file) => {
+        const script = document.createElement('script');
+        script.src = withVersion(file);
+        // Preserve the execution order of the original static script tags.
+        script.async = false;
+        script.addEventListener('error', () => {
+          console.error(`[MultiChat Loader] Failed to load JavaScript: ${file}`);
+        });
+        document.body.appendChild(script);
+      });
+
+      console.log(`[MultiChat Loader] Local assets requested with version ${version}.`);
+    })();
+  </script>
 </body>
 
 </html>
