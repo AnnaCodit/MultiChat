@@ -272,7 +272,7 @@ class EmoteManager {
   /**
    * Render User Badges HTML wrapped in parent <span class="msg-badges"> container
    */
-  getBadgesHTML(msg) {
+  getBadgesHTML(msg, options = {}) {
     if (!msg || !msg.badges) return '';
 
     let badgeUrls = [];
@@ -343,8 +343,14 @@ class EmoteManager {
       return `<img class="chat-badge" src="${cleanUrl}" alt="${cleanTitle}" title="${cleanTitle}">`;
     }).join('');
 
+    // Keep badges in the DOM when hidden so the setting can be toggled without re-rendering messages.
+    const containerClasses = ['msg-badges'];
+    if (msg.platform === 'twitch' && options.hideTwitchBadges) {
+      containerClasses.push('twitch-badges-hidden');
+    }
+
     // WRAP ALL BADGES IN PARENT CONTAINER <span class="msg-badges">
-    return `<span class="msg-badges">${imgTagsHTML}</span>`;
+    return `<span class="${containerClasses.join(' ')}">${imgTagsHTML}</span>`;
   }
 
   /**

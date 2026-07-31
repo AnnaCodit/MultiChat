@@ -116,6 +116,7 @@ class MultiChatApp {
         const updated = this.settings.readForm();
         modalEl.classList.add('hidden');
         this.applyFontSettings(updated.fontSize);
+        this.applyTwitchBadgesVisibility();
         this.pruneExcessMessages();
         this.initEmotesAndConnect();
       });
@@ -163,6 +164,17 @@ class MultiChatApp {
 
   applyFontSettings(sizePx) {
     document.documentElement.style.setProperty('--font-size', `${sizePx}px`);
+  }
+
+  applyTwitchBadgesVisibility() {
+    const shouldHide = !!this.settings.settings.hideTwitchBadges;
+    const badgeContainers = this.chatMessagesEl.querySelectorAll('.msg-platform.twitch ~ .msg-badges');
+
+    badgeContainers.forEach((badgeContainer) => {
+      badgeContainer.classList.toggle('twitch-badges-hidden', shouldHide);
+    });
+
+    console.log(`[MultiChat UI] Twitch user badges ${shouldHide ? 'hidden' : 'shown'} for ${badgeContainers.length} rendered message(s).`);
   }
 
   initEmotesAndConnect() {
@@ -278,8 +290,10 @@ class MultiChatApp {
     const platformLabel = platformClass.charAt(0).toUpperCase();
     const escapedAuthor = this.escapeHTML(msg.author);
 
-    // Badges HTML (Parses ALL user badges: Twitch & Kick)
-    let badgesHTML = this.emotes.getBadgesHTML(msg);
+    // Badges HTML (Parses ALL user badges: Twitch, Kick & YouTube)
+    let badgesHTML = this.emotes.getBadgesHTML(msg, {
+      hideTwitchBadges: msg.platform === 'twitch' && this.settings.settings.hideTwitchBadges
+    });
 
     // Append Channel Points Reward Badge if applicable
     if (isReward) {

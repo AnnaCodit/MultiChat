@@ -305,6 +305,11 @@ body.dark-theme {
   margin-top: -3px;
 }
 
+/* User setting: keep Twitch badges in the DOM but hide them visually. */
+.msg-badges.twitch-badges-hidden {
+  display: none;
+}
+
 /* User Role Badges (Moderator, VIP, Sub 1m/6m/12m/24m, Broadcaster, etc.) */
 .chat-badge {
   height: 14px;

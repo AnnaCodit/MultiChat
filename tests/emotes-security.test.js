@@ -78,3 +78,17 @@ test('unsafe badge and emote URLs are not rendered', () => {
   assert.equal(html, 'BAD');
   assert.equal(badges, '');
 });
+
+test('Twitch badges can be hidden with a CSS class without removing their markup', () => {
+  const manager = new EmoteManager({ loadGlobalBadges: false });
+  const html = manager.getBadgesHTML(
+    {
+      platform: 'twitch',
+      badges: 'broadcaster/1,subscriber/1,partner/1'
+    },
+    { hideTwitchBadges: true }
+  );
+
+  assert.match(html, /class="msg-badges twitch-badges-hidden"/);
+  assert.match(html, /class="chat-badge"/);
+});

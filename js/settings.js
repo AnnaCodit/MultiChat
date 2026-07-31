@@ -13,6 +13,7 @@ const defaultSettings = {
   extraNicknames: '',
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
+  hideTwitchBadges: false,
   fontSize: 16,
   firstMessageWindowHours: 12,
   maxChatMessages: 200
@@ -112,6 +113,7 @@ class SettingsManager {
     
     document.getElementById('hideChatterReplies').checked = !!this.settings.hideChatterReplies;
     document.getElementById('enableThirdPartyEmotes').checked = !!this.settings.enableThirdPartyEmotes;
+    document.getElementById('hideTwitchBadges').checked = !!this.settings.hideTwitchBadges;
     
     document.getElementById('fontSizeRange').value = this.settings.fontSize || 16;
     document.getElementById('fontSizeVal').textContent = (this.settings.fontSize || 16) + 'px';
@@ -141,6 +143,7 @@ class SettingsManager {
       extraNicknames: document.getElementById('extraNicknames').value.trim(),
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
+      hideTwitchBadges: document.getElementById('hideTwitchBadges').checked,
       fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16,
       firstMessageWindowHours: windowInput ? (parseInt(windowInput.value, 10) || 12) : 12,
       maxChatMessages: maxMessagesInput ? (parseInt(maxMessagesInput.value, 10) || 200) : 200
