@@ -47,6 +47,23 @@
           href="http://localhost:8088/multichat-gemini/">http://localhost:8088/multichat-gemini/</a></div>
     </div>
   </main>
+  <!-- Twitch user profile popup; it is populated only for Twitch chat authors. -->
+  <div class="twitch-user-popup hidden" id="twitchUserPopup" role="dialog"
+    aria-label="Профиль пользователя Twitch" aria-hidden="true">
+    <div class="twitch-user-popup-header">
+      <img class="twitch-user-popup-avatar" id="twitchUserAvatar" alt="" hidden>
+      <div class="twitch-user-popup-heading">
+        <strong class="twitch-user-popup-name" id="twitchUserName"></strong>
+        <span class="twitch-user-popup-status" id="twitchUserStatus" aria-live="polite">Загрузка профиля...</span>
+      </div>
+      <button class="twitch-user-popup-close" id="closeTwitchUserPopup" type="button"
+        aria-label="Закрыть профиль пользователя">&times;</button>
+    </div>
+    <div class="twitch-user-popup-links">
+      <a id="twitchUserHistoryLink" aria-disabled="true">История сообщений</a>
+      <a id="twitchUserChannelLink" aria-disabled="true" target="_blank" rel="noopener noreferrer">Канал пользователя</a>
+    </div>
+  </div>
   <!-- Settings Modal Overlay -->
   <div class="modal-overlay hidden" id="settingsModal">
     <div class="modal-card">
@@ -186,6 +203,7 @@
         'js/connectors/kick.js',
         'js/connectors/vklive.js',
         'js/connectors/youtube.js',
+        'js/twitchUserPopup.js',
         'js/app.js'
       ];
 

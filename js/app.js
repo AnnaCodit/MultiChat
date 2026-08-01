@@ -19,6 +19,11 @@ class MultiChatApp {
 
     this.chatMessagesEl = document.getElementById('chatMessages');
     this.chatContainerEl = document.getElementById('chatContainer');
+    this.twitchUserPopup = new TwitchUserPopup({
+      chatMessagesEl: this.chatMessagesEl,
+      chatContainerEl: this.chatContainerEl,
+      getCurrentTwitchChannel: () => this.twitch?.channel || this.settings?.settings?.twitchChannel || ''
+    });
 
     this.initUI();
 
@@ -311,13 +316,14 @@ class MultiChatApp {
     // Custom user nickname color (with unreadable bright blue remapped to rgb(153, 153, 255))
     const authorColor = this.normalizeColor(msg.color);
     const authorStyle = authorColor ? `style="color: ${this.escapeHTML(authorColor)}"` : '';
+    const authorHTML = this.twitchUserPopup.renderAuthor(msg, escapedAuthor, authorStyle);
 
     if (isReward) {
       // Collapsed Reward format with spoiler hint
       lineEl.classList.add('collapsed-reward');
       lineEl.innerHTML = `
         <div class="collapsed-placeholder">
-          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span>
+          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}${authorHTML}<span class="msg-colon">:</span></span>
           <span class="reward-spoiler-hint">▶ (нажмите, чтобы развернуть текст)</span>
         </div>
         <div class="collapsed-content">
@@ -332,12 +338,12 @@ class MultiChatApp {
           <span>===</span>
         </div>
         <div class="collapsed-content">
-          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>
+          <span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}${authorHTML}<span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>
         </div>
       `;
     } else {
       // Standard Chat Line format with parent msg-header wrapper
-      lineEl.innerHTML = `<span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}<span class="msg-author" ${authorStyle}>${escapedAuthor}</span><span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>`;
+      lineEl.innerHTML = `<span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}${authorHTML}<span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>`;
     }
 
     this.chatMessagesEl.appendChild(lineEl);
