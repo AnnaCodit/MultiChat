@@ -134,12 +134,11 @@ class TwitchConnector {
       const prefix = lineToParse.substring(0, privmsgIdx).trim();
       const content = lineToParse.substring(lineToParse.indexOf(':', privmsgIdx) + 1);
 
-      // Extract author display-name or fallback to IRC username
-      let author = tags['display-name'] || '';
-      if (!author) {
-        const nickMatch = prefix.match(/^:([^!]+)!/);
-        author = nickMatch ? nickMatch[1] : 'TwitchUser';
-      }
+      // The IRC prefix is the canonical Twitch login. display-name is presentation-only
+      // and may not be accepted by profile APIs for localized display names.
+      const nickMatch = prefix.match(/^:([^!]+)!/);
+      const login = nickMatch ? nickMatch[1] : '';
+      const author = tags['display-name'] || login || 'TwitchUser';
 
       // Extract reply metadata from Twitch tags
       const replyTo = tags['reply-parent-user-login'] || null;
@@ -153,7 +152,8 @@ class TwitchConnector {
 
       this.onMessage({
         platform: 'twitch',
-        author: author,
+        login,
+        author,
         text: content,
         color: userColor,
         badges: userBadges,

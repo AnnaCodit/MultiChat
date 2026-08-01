@@ -152,6 +152,7 @@ class MultiChatApp {
     });
 
     this.applyFontSettings(this.settings.settings.fontSize);
+    this.applyTwitchBadgesVisibility();
 
     // Auto-open settings modal if no channel address is specified
     if (!this.settings.hasAnyChannelConfigured()) {
@@ -173,13 +174,25 @@ class MultiChatApp {
 
   applyTwitchBadgesVisibility() {
     const shouldHide = !!this.settings.settings.hideTwitchBadges;
-    const badgeContainers = this.chatMessagesEl.querySelectorAll('.msg-platform.twitch ~ .msg-badges');
+    this.chatMessagesEl.classList.toggle('hide-twitch-badges', shouldHide);
+    console.log(`[MultiChat UI] Twitch user badges ${shouldHide ? 'hidden' : 'shown'}.`);
+  }
 
-    badgeContainers.forEach((badgeContainer) => {
-      badgeContainer.classList.toggle('twitch-badges-hidden', shouldHide);
-    });
+  renderAuthorHTML(msg, escapedAuthor, authorStyle = '') {
+    const classes = ['msg-author'];
+    const attributes = [];
 
-    console.log(`[MultiChat UI] Twitch user badges ${shouldHide ? 'hidden' : 'shown'} for ${badgeContainers.length} rendered message(s).`);
+    if (msg.platform === 'twitch') {
+      classes.push('twitch-author');
+      const login = this.normalizeTwitchLogin(msg.login || msg.author);
+      if (login) {
+        attributes.push(`data-twitch-username="${this.escapeHTML(login)}"`);
+      }
+    }
+
+    if (authorStyle) attributes.push(authorStyle);
+    const extraAttributes = attributes.length ? ` ${attributes.join(' ')}` : '';
+    return `<span class="${classes.join(' ')}"${extraAttributes}>${escapedAuthor}</span>`;
   }
 
   initEmotesAndConnect() {
@@ -296,9 +309,7 @@ class MultiChatApp {
     const escapedAuthor = this.escapeHTML(msg.author);
 
     // Badges HTML (Parses ALL user badges: Twitch, Kick & YouTube)
-    let badgesHTML = this.emotes.getBadgesHTML(msg, {
-      hideTwitchBadges: msg.platform === 'twitch' && this.settings.settings.hideTwitchBadges
-    });
+    let badgesHTML = this.emotes.getBadgesHTML(msg);
 
     // Append Channel Points Reward Badge if applicable
     if (isReward) {
@@ -316,7 +327,7 @@ class MultiChatApp {
     // Custom user nickname color (with unreadable bright blue remapped to rgb(153, 153, 255))
     const authorColor = this.normalizeColor(msg.color);
     const authorStyle = authorColor ? `style="color: ${this.escapeHTML(authorColor)}"` : '';
-    const authorHTML = this.twitchUserPopup.renderAuthor(msg, escapedAuthor, authorStyle);
+    const authorHTML = this.renderAuthorHTML(msg, escapedAuthor, authorStyle);
 
     if (isReward) {
       // Collapsed Reward format with spoiler hint
@@ -385,6 +396,10 @@ class MultiChatApp {
     }
 
     return color;
+  }
+
+  normalizeTwitchLogin(value) {
+    return String(value || '').trim().toLowerCase().replace(/^[@#]+/, '');
   }
 
   escapeHTML(str) {

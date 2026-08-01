@@ -11,6 +11,29 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
+  <!-- Request local styles before body parsing to prevent unstyled hidden UI from flashing. -->
+  <script>
+    (function () {
+      const version = Date.now();
+      window.__MULTICHAT_ASSET_VERSION__ = version;
+
+      const cssFiles = [
+        'style.css',
+        'twitch-user-popup.css'
+      ];
+
+      cssFiles.forEach((file) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.setAttribute('blocking', 'render');
+        link.href = `${file}?v=${version}`;
+        link.addEventListener('error', () => {
+          console.error(`[MultiChat Loader] Failed to load CSS: ${file}`);
+        });
+        document.head.appendChild(link);
+      });
+    })();
+  </script>
 </head>
 
 <body class="dark-theme">
@@ -184,15 +207,12 @@
       </div>
     </div>
   </div>
-  <!-- Local assets receive one page-load version to avoid stale browser cache. -->
+  <!-- Local scripts reuse the page-load version created by the early CSS loader. -->
   <script>
     (function () {
-      const version = Date.now();
+      const version = window.__MULTICHAT_ASSET_VERSION__ || Date.now();
 
       // Keep dependency order explicit: app.js depends on every file above it.
-      const cssFiles = [
-        'style.css'
-      ];
       const jsFiles = [
         'js/utils.js',
         'js/settings.js',
@@ -208,16 +228,6 @@
       ];
 
       const withVersion = (file) => `${file}?v=${version}`;
-
-      cssFiles.forEach((file) => {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = withVersion(file);
-        link.addEventListener('error', () => {
-          console.error(`[MultiChat Loader] Failed to load CSS: ${file}`);
-        });
-        document.head.appendChild(link);
-      });
 
       jsFiles.forEach((file) => {
         const script = document.createElement('script');

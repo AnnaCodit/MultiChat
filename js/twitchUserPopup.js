@@ -3,28 +3,37 @@
  * Handles profile lookup, author click events, profile links and popup layout.
  */
 
-async function getTwitchUserData(username) {
+const TWITCH_USER_REQUEST_TIMEOUT_MS = 8000;
+
+async function getTwitchUserData(username, { timeoutMs = TWITCH_USER_REQUEST_TIMEOUT_MS } = {}) {
   const normalizedUsername = String(username || '').trim().toLowerCase().replace(/^@+/, '');
   if (!normalizedUsername) return null;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const response = await fetch(
-      `https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(normalizedUsername)}`
+      `https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(normalizedUsername)}`,
+      { signal: controller.signal }
     );
     if (!response.ok) {
-      console.error(`[Twitch User API] Request failed for ${normalizedUsername}: HTTP ${response.status}`);
-      return null;
+      throw new Error(`IVR API returned HTTP ${response.status}`);
     }
 
     const data = await response.json();
     if (data && data[0]) return data[0];
-
-    console.error(`[Twitch User API] User not found: ${normalizedUsername}`);
+    return null;
   } catch (error) {
-    console.error(`[Twitch User API] Request error for ${normalizedUsername}:`, error);
+    if (error && error.name === 'AbortError') {
+      const timeoutError = new Error(`IVR API request timed out after ${timeoutMs} ms`);
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return null;
 }
 
 class TwitchUserPopup {
@@ -106,25 +115,6 @@ class TwitchUserPopup {
     window.addEventListener('resize', () => this.position());
   }
 
-  renderAuthor(msg, escapedAuthor, authorStyle = '') {
-    const isTwitchAuthor = msg?.platform === 'twitch';
-    const username = isTwitchAuthor
-      ? ((msg.tags && msg.tags['user-login']) || msg.author)
-      : '';
-    const attributes = [
-      `class="${isTwitchAuthor ? 'msg-author twitch-author' : 'msg-author'}"`
-    ];
-
-    if (username) {
-      attributes.push(
-        `data-twitch-username="${this.escapeAttribute(this.normalizeLogin(username))}"`
-      );
-    }
-    if (authorStyle) attributes.push(authorStyle);
-
-    return `<span ${attributes.join(' ')}>${escapedAuthor}</span>`;
-  }
-
   async open(authorEl) {
     if (!this.popupEl) return;
 
@@ -143,10 +133,15 @@ class TwitchUserPopup {
     this.popupEl.setAttribute('aria-hidden', 'false');
     this.position();
 
-    const userData = await this.getCachedUserData(username);
-    if (requestId !== this.requestId || this.popupEl.classList.contains('hidden')) return;
-
-    this.render(userData, username);
+    try {
+      const userData = await this.getCachedUserData(username);
+      if (requestId !== this.requestId || this.popupEl.classList.contains('hidden')) return;
+      this.render(userData, username);
+    } catch (error) {
+      if (requestId !== this.requestId || this.popupEl.classList.contains('hidden')) return;
+      this.renderError(username, error);
+      console.error(`[Twitch User Popup] Failed to load Twitch user ${username}:`, error);
+    }
     this.position();
   }
 
@@ -178,16 +173,33 @@ class TwitchUserPopup {
     }
   }
 
+  renderError(username, error) {
+    this.nameEl.textContent = username;
+    this.avatarEl.hidden = true;
+    this.avatarEl.removeAttribute('src');
+    this.statusEl.textContent = error && error.name === 'TimeoutError'
+      ? 'Профиль не загрузился вовремя. Нажмите на ник, чтобы повторить.'
+      : 'Не удалось загрузить профиль. Нажмите на ник, чтобы повторить.';
+    this.updateLinks(username);
+  }
+
   getCachedUserData(username) {
     const cacheKey = this.normalizeLogin(username);
     if (!cacheKey) return Promise.resolve(null);
 
     if (!this.userDataCache.has(cacheKey)) {
-      const request = getTwitchUserData(cacheKey);
-      this.userDataCache.set(cacheKey, Promise.resolve(request).catch((error) => {
-        console.error(`[Twitch User Popup] Failed to load Twitch user ${cacheKey}:`, error);
-        return null;
-      }));
+      const request = getTwitchUserData(cacheKey)
+        .then((userData) => {
+          // Cache successful profiles only; a missing profile may appear later.
+          if (!userData) this.userDataCache.delete(cacheKey);
+          return userData;
+        })
+        .catch((error) => {
+          // A temporary IVR/network failure must be retried on the next click.
+          this.userDataCache.delete(cacheKey);
+          throw error;
+        });
+      this.userDataCache.set(cacheKey, request);
     }
 
     return this.userDataCache.get(cacheKey);
@@ -295,15 +307,6 @@ class TwitchUserPopup {
 
   normalizeLogin(value) {
     return String(value || '').trim().toLowerCase().replace(/^[@#]+/, '');
-  }
-
-  escapeAttribute(value) {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
   }
 
   isSafeImageUrl(url) {
