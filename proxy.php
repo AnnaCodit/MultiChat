@@ -5,6 +5,15 @@ declare(strict_types=1);
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 
+// Browser origins allowed to use the deployed proxy. Origin never includes a URL path.
+const ALLOWED_ORIGINS = [
+    'http://localhost:8088',
+    'http://127.0.0.1:8088',
+    'https://annacodit.github.io',
+    'https://fra3a.ru',
+    'https://www.fra3a.ru',
+];
+
 // Add a trusted domain suffix here when a new platform needs server-side fetching.
 const ALLOWED_HOST_SUFFIXES = [
     'youtube.com',
@@ -37,6 +46,27 @@ function fail(int $status, string $publicMessage, string $logMessage = ''): void
 
     echo $publicMessage;
     exit;
+}
+
+function applyCorsHeaders(): void
+{
+    $origin = isset($_SERVER['HTTP_ORIGIN']) && is_string($_SERVER['HTTP_ORIGIN'])
+        ? $_SERVER['HTTP_ORIGIN']
+        : '';
+
+    // Same-origin browser requests usually omit Origin. CORS is only needed when it is present.
+    if ($origin === '') {
+        return;
+    }
+
+    if (!in_array($origin, ALLOWED_ORIGINS, true)) {
+        fail(403, 'This origin is not allowed.', 'Rejected origin: ' . $origin);
+    }
+
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Access-Control-Allow-Methods: GET, OPTIONS');
+    header('Access-Control-Max-Age: 86400');
+    header('Vary: Origin');
 }
 
 function hostMatchesSuffix(string $host, string $suffix): bool
@@ -173,13 +203,18 @@ function fetchUrl(string $url): array
     ];
 }
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
-    header('Allow: GET');
-    fail(405, 'Only GET requests are supported.');
+applyCorsHeaders();
+
+$requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if ($requestMethod === 'OPTIONS') {
+    header('Allow: GET, OPTIONS');
+    http_response_code(204);
+    exit;
 }
 
-if (($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '') === 'cross-site') {
-    fail(403, 'Cross-site requests are not allowed.', 'Blocked a cross-site request.');
+if ($requestMethod !== 'GET') {
+    header('Allow: GET, OPTIONS');
+    fail(405, 'Only GET requests are supported.');
 }
 
 if (!function_exists('curl_init')) {
