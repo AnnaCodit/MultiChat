@@ -3,3 +3,5 @@ scratch/
 plans/
 docs/
 .env
+*sftp*
+proxy.local.php

@@ -6,6 +6,12 @@
  * existing GET-only transport without an API key or an authenticated session.
  */
 
+// Static connector settings. Change these values in code; they are intentionally
+// not exposed in the user-facing settings window.
+const YOUTUBE_CONNECTOR_CONFIG = Object.freeze({
+  minimumChatPollIntervalMs: 5000
+});
+
 class YoutubeConnector {
   constructor(onMessageCallback, onStatusCallback, options = {}) {
     this.onMessage = onMessageCallback;
@@ -15,6 +21,9 @@ class YoutubeConnector {
     this.clearTimer = options.clearTimer || ((timer) => clearTimeout(timer));
     this.logger = options.logger || console;
     this.requestTimeoutMs = options.requestTimeoutMs || 20000;
+    this.minimumPollIntervalMs = Number.isFinite(options.minimumPollIntervalMs)
+      ? Math.max(1000, options.minimumPollIntervalMs)
+      : YOUTUBE_CONNECTOR_CONFIG.minimumChatPollIntervalMs;
 
     this.channelOrVideo = '';
     this.currentVideoId = null;
@@ -646,10 +655,16 @@ class YoutubeConnector {
     if (!this.isConnectionActive(connectionId)) return;
     if (this.pollTimer) this.clearTimer(this.pollTimer);
 
+    // The HTML continuation endpoint can request a one-second interval and
+    // returns hundreds of kilobytes. A small floor keeps chat responsive while
+    // preventing excessive traffic through a metered upstream proxy.
+    const requestedDelayMs = Number.isFinite(delayMs) ? delayMs : 30000;
+    const safeDelayMs = Math.max(this.minimumPollIntervalMs, requestedDelayMs);
+
     this.pollTimer = this.setTimer(() => {
       this.pollTimer = null;
       void this.pollChat(videoId, connectionId);
-    }, delayMs);
+    }, safeDelayMs);
   }
 
   scheduleChannelRetry(connectionId, delayMs) {

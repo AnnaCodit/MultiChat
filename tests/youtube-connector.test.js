@@ -124,6 +124,26 @@ test('missing continuation marks the chat as ended', () => {
   assert.equal(connector.continuationToken, null);
 });
 
+test('chat polling uses the traffic-safe interval from JS configuration', () => {
+  let scheduledDelay = null;
+  const connector = new YoutubeConnector(
+    () => {},
+    () => {},
+    {
+      setTimer: (callback, delay) => {
+        scheduledDelay = delay;
+        return 1;
+      },
+      clearTimer() {}
+    }
+  );
+  connector.channelOrVideo = '@channel';
+
+  connector.schedulePoll('gCNeDWCI0vo', connector.connectionId, 1000);
+
+  assert.equal(scheduledDelay, 5000);
+});
+
 test('a stale request cannot publish messages after reconnect', async () => {
   const html = `<script>window["ytInitialData"] = ${JSON.stringify(initialFixture)};</script>`;
   let releaseFirstRequest;
