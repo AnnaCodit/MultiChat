@@ -8,7 +8,7 @@ const CONNECT_TIMEOUT_SECONDS = 7;
 const REQUEST_TIMEOUT_SECONDS = 25;
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const PROXY_LOG_FILE = __DIR__ . '/proxy.log';
-const UPSTREAM_PROXY_CONFIG_FILE = __DIR__ . '/proxy.local.php';
+const UPSTREAM_PROXY_CONFIG_FILE = __DIR__ . '/settings.php';
 
 // Browser origins allowed to use the deployed proxy. Origin never includes a URL path.
 const ALLOWED_ORIGINS = [
@@ -141,7 +141,7 @@ function getUpstreamProxyConfig(): ?array
     if (is_file(UPSTREAM_PROXY_CONFIG_FILE)) {
         $localValues = require UPSTREAM_PROXY_CONFIG_FILE;
         if (!is_array($localValues)) {
-            fail(500, 'The upstream proxy configuration is invalid.', 'proxy.local.php must return an array.');
+            fail(500, 'The upstream proxy configuration is invalid.', 'settings.php must return an array.');
         }
 
         $values = array_merge($values, $localValues);

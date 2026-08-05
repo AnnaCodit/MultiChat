@@ -4,4 +4,4 @@ plans/
 docs/
 .env
 *sftp*
-proxy.local.php
+proxy/settings.php

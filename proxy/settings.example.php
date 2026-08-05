@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-// Copy this file to proxy.local.php, fill in the purchased proxy credentials,
+// Copy this file to settings.php, fill in the purchased proxy credentials,
 // and upload it next to index.php. A direct web request receives no config data.
 if (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
     http_response_code(404);
