@@ -19,6 +19,8 @@ class MultiChatApp {
 
     this.chatMessagesEl = document.getElementById('chatMessages');
     this.chatContainerEl = document.getElementById('chatContainer');
+    this.unreadBadgeEl = document.getElementById('unreadBadge');
+    this.unreadBadgeTextEl = document.getElementById('unreadBadgeText');
     this.twitchUserPopup = new TwitchUserPopup({
       chatMessagesEl: this.chatMessagesEl,
       chatContainerEl: this.chatContainerEl,
@@ -140,6 +142,15 @@ class MultiChatApp {
         const distanceToBottom = this.chatContainerEl.scrollHeight - this.chatContainerEl.scrollTop - this.chatContainerEl.clientHeight;
         // Turn auto-scroll on only if user is at or near bottom (within 40px)
         this.isAutoScrollEnabled = distanceToBottom <= 40;
+        this.updateUnreadBadge();
+      });
+    }
+
+    if (this.unreadBadgeEl) {
+      this.unreadBadgeEl.addEventListener('click', () => {
+        this.scrollToBottom();
+        this.isAutoScrollEnabled = true;
+        this.updateUnreadBadge();
       });
     }
 
@@ -365,6 +376,8 @@ class MultiChatApp {
     // Auto scroll down only if auto-scroll is currently active
     if (this.isAutoScrollEnabled) {
       this.scrollToBottom();
+    } else {
+      this.updateUnreadBadge();
     }
   }
 
@@ -377,6 +390,53 @@ class MultiChatApp {
 
   scrollToBottom() {
     this.chatContainerEl.scrollTop = this.chatContainerEl.scrollHeight;
+  }
+
+  formatUnreadCountText(count) {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+
+    let word = 'новых сообщений';
+    if (mod100 >= 11 && mod100 <= 19) {
+      word = 'новых сообщений';
+    } else if (mod10 === 1) {
+      word = 'новое сообщение';
+    } else if (mod10 >= 2 && mod10 <= 4) {
+      word = 'новых сообщения';
+    }
+
+    return `↓ ${count} ${word}`;
+  }
+
+  updateUnreadBadge() {
+    if (!this.chatContainerEl || !this.chatMessagesEl || !this.unreadBadgeEl) return;
+
+    if (this.isAutoScrollEnabled) {
+      this.unreadBadgeEl.classList.add('hidden');
+      return;
+    }
+
+    const viewportBottom = this.chatContainerEl.scrollTop + this.chatContainerEl.clientHeight;
+    let unreadCount = 0;
+
+    const children = this.chatMessagesEl.children;
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i];
+      if (child.offsetTop + 5 >= viewportBottom) {
+        unreadCount++;
+      } else {
+        break;
+      }
+    }
+
+    if (unreadCount > 0) {
+      if (this.unreadBadgeTextEl) {
+        this.unreadBadgeTextEl.textContent = this.formatUnreadCountText(unreadCount);
+      }
+      this.unreadBadgeEl.classList.remove('hidden');
+    } else {
+      this.unreadBadgeEl.classList.add('hidden');
+    }
   }
 
   normalizeColor(color) {
