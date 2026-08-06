@@ -396,13 +396,13 @@ class MultiChatApp {
     const mod10 = count % 10;
     const mod100 = count % 100;
 
-    let word = 'новых сообщений';
+    let word = 'сообщений';
     if (mod100 >= 11 && mod100 <= 19) {
-      word = 'новых сообщений';
+      word = 'сообщений';
     } else if (mod10 === 1) {
-      word = 'новое сообщение';
+      word = 'сообщение';
     } else if (mod10 >= 2 && mod10 <= 4) {
-      word = 'новых сообщения';
+      word = 'сообщения';
     }
 
     return `↓ ${count} ${word}`;
