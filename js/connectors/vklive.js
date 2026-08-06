@@ -1,21 +1,37 @@
 /**
  * VK Play Live / VK Video Live Connector for MultiChat
- * Fetches guest JWT token and channel ID, then subscribes to channel-chat via Centrifugo WS
+ * Fetches guest JWT token and channel ID, then subscribes to channel-chat via Centrifugo WS.
+ * Falls back to the public recent-messages endpoint when VK rejects the page WebSocket Origin.
  */
 
+const VK_LIVE_CONNECTOR_CONFIG = Object.freeze({
+  pollIntervalMs: 4000,
+  pollMessageLimit: 20
+});
+
 class VkLiveConnector {
-  constructor(onMessageCallback, onStatusCallback) {
+  constructor(onMessageCallback, onStatusCallback, options = {}) {
     this.onMessage = onMessageCallback;
     this.onStatus = onStatusCallback;
     this.ws = null;
     this.channel = '';
     this.channelId = null;
-    this.reconnectTimer = null;
+    this.pollTimer = null;
+    this.pollAbortController = null;
+    this.connectionId = 0;
+    this.isPolling = false;
+    this.isPollingOnline = false;
     this.seenMessageIds = new Set();
+    this.fetcher = options.fetcher || ((url, init) => fetchWithCorsProxy(url, init));
+    this.createWebSocket = options.createWebSocket || (url => new WebSocket(url));
+    this.setTimer = options.setTimer || setTimeout;
+    this.clearTimer = options.clearTimer || clearTimeout;
+    this.logger = options.logger || console;
   }
 
   async connect(channelName) {
     this.disconnect();
+    const connectionId = this.connectionId;
 
     if (!channelName) {
       this.onStatus('vk', false, 'Канал не указан');
@@ -37,7 +53,7 @@ class VkLiveConnector {
         if (channelId && jwtToken && exp && (exp - nowSec) > 300) {
           this.channelId = channelId;
           console.log(`[VK Live Connector] Using cached VK credentials for ${this.channel}`);
-          this.initCentrifugoWS(jwtToken);
+          this.initCentrifugoWS(jwtToken, connectionId);
           return;
         }
       }
@@ -81,11 +97,12 @@ class VkLiveConnector {
       }));
 
       console.log(`[VK Live Connector] Extracted guest JWT token. Opening Centrifugo WS...`);
-      this.initCentrifugoWS(jwtToken);
+      this.initCentrifugoWS(jwtToken, connectionId);
 
     } catch (err) {
+      if (connectionId !== this.connectionId) return;
       console.warn('[VK Live Connector] Connection setup failed:', err.message);
-      this.onStatus('vk', false, 'Канал не найден');
+      this.startPolling(connectionId);
     }
   }
 
@@ -109,12 +126,13 @@ class VkLiveConnector {
     return null;
   }
 
-  initCentrifugoWS(jwtToken) {
+  initCentrifugoWS(jwtToken, connectionId = this.connectionId) {
     try {
       const wsUrl = 'wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2';
-      this.ws = new WebSocket(wsUrl);
+      this.ws = this.createWebSocket(wsUrl);
 
       this.ws.onopen = () => {
+        if (connectionId !== this.connectionId) return;
         console.log('[VK Live Connector] Centrifugo WS opened. Sending connect packet...');
         this.ws.send(JSON.stringify({
           connect: { token: jwtToken, name: 'js' },
@@ -123,6 +141,7 @@ class VkLiveConnector {
       };
 
       this.ws.onmessage = (event) => {
+        if (connectionId !== this.connectionId) return;
         const rawText = (event.data || '').toString().trim();
         if (!rawText) return;
 
@@ -146,6 +165,7 @@ class VkLiveConnector {
 
             // Connect response -> subscribe to channel chat topics
             if (packet.id === 1 && packet.connect) {
+              this.stopPolling();
               console.log(`[VK Live Connector] Connected! Subscribing to channel-chat:${this.channelId}...`);
               this.ws.send(JSON.stringify({
                 subscribe: { channel: `channel-chat:${this.channelId}` },
@@ -156,6 +176,11 @@ class VkLiveConnector {
                 id: 3
               }));
               this.onStatus('vk', true, `Онлайн (${this.channel})`);
+            }
+
+            if (packet.id === 1 && packet.error) {
+              this.logger.warn('[VK Live Connector] Centrifugo rejected the connection:', packet.error);
+              this.ws.close();
             }
 
             // Handle incoming push publication
@@ -169,33 +194,112 @@ class VkLiveConnector {
       };
 
       this.ws.onerror = (err) => {
+        if (connectionId !== this.connectionId) return;
         console.error('[VK Live Connector] WS Error:', err);
-        this.onStatus('vk', false, 'Ошибка соединения');
+        this.onStatus('vk', false, 'WebSocket недоступен');
       };
 
       this.ws.onclose = (ev) => {
-        console.warn(`[VK Live Connector] WS Closed (Code: ${ev.code}, Reason: ${ev.reason}). Reconnecting in 5s...`);
-        this.onStatus('vk', false, 'Отключен');
-        this.cleanup();
-
-        // Auto reconnect
-        this.reconnectTimer = setTimeout(() => {
-          if (this.channel) this.connect(this.channel);
-        }, 5000);
+        if (connectionId !== this.connectionId || !this.channel) return;
+        this.logger.warn(`[VK Live Connector] WS Closed (Code: ${ev.code}, Reason: ${ev.reason}). Switching to polling.`);
+        this.ws = null;
+        this.startPolling(connectionId);
       };
     } catch (e) {
       console.error('[VK Live Connector] Exception during WS setup:', e);
-      this.onStatus('vk', false, 'Ошибка');
+      this.startPolling(connectionId);
+    }
+  }
+
+  buildPollingUrl() {
+    const channel = encodeURIComponent(this.channel);
+    return `https://api.live.vkvideo.ru/v1/blog/${channel}/public_video_stream/chat?limit=${VK_LIVE_CONNECTOR_CONFIG.pollMessageLimit}`;
+  }
+
+  async startPolling(connectionId = this.connectionId) {
+    if (connectionId !== this.connectionId || !this.channel || this.isPolling) return;
+
+    this.isPolling = true;
+    this.isPollingOnline = false;
+    this.logger.info(`[VK Live Connector] Starting recent-message polling every ${VK_LIVE_CONNECTOR_CONFIG.pollIntervalMs}ms.`);
+    this.onStatus('vk', false, 'Подключение через резервный режим...');
+    return this.pollMessages(connectionId);
+  }
+
+  async pollMessages(connectionId) {
+    if (connectionId !== this.connectionId || !this.channel || !this.isPolling) return;
+
+    const abortController = new AbortController();
+    this.pollAbortController = abortController;
+
+    try {
+      const response = await this.fetcher(this.buildPollingUrl(), {
+        cache: 'no-store',
+        signal: abortController.signal
+      });
+      const payload = await response.json();
+
+      if (connectionId !== this.connectionId || abortController.signal.aborted) return;
+      if (!payload || !Array.isArray(payload.data)) {
+        throw new Error('Unexpected recent-message response');
+      }
+
+      const messages = payload.data.slice().sort((left, right) => {
+        return Number(left.createdAt || 0) - Number(right.createdAt || 0);
+      });
+      messages.forEach(message => this.handleCentrifugoPublication(message));
+
+      if (!this.isPollingOnline) {
+        this.isPollingOnline = true;
+        this.onStatus('vk', true, `Онлайн (${this.channel}, резервный режим)`);
+      }
+    } catch (error) {
+      if (connectionId !== this.connectionId || abortController.signal.aborted) return;
+      this.isPollingOnline = false;
+      this.logger.error('[VK Live Connector] Recent-message polling failed:', error);
+      this.onStatus('vk', false, 'Ошибка получения сообщений VK');
+    } finally {
+      if (this.pollAbortController === abortController) {
+        this.pollAbortController = null;
+      }
+      if (connectionId === this.connectionId && this.channel && this.isPolling) {
+        this.pollTimer = this.setTimer(() => {
+          this.pollTimer = null;
+          return this.pollMessages(connectionId);
+        }, VK_LIVE_CONNECTOR_CONFIG.pollIntervalMs);
+      }
+    }
+  }
+
+  stopPolling() {
+    this.isPolling = false;
+    this.isPollingOnline = false;
+
+    if (this.pollAbortController) {
+      this.pollAbortController.abort();
+      this.pollAbortController = null;
+    }
+    if (this.pollTimer) {
+      this.clearTimer(this.pollTimer);
+      this.pollTimer = null;
     }
   }
 
   handleCentrifugoPublication(pubData) {
     try {
-      const payload = pubData.data || pubData;
+      // WebSocket publications wrap the message in data, while polling messages
+      // use data for the rich-text parts and must remain intact.
+      const shouldUnwrap = pubData
+        && pubData.data
+        && !Array.isArray(pubData.data)
+        && !pubData.author
+        && !pubData.sender
+        && !pubData.user;
+      const payload = shouldUnwrap ? pubData.data : pubData;
       if (!payload) return;
 
       // Extract author
-      const authorObj = payload.author || (payload.sender ? payload.sender : null);
+      const authorObj = payload.author || payload.sender || payload.user || null;
       const author = authorObj ? (authorObj.displayName || authorObj.nick || authorObj.name) : 'VKUser';
       const color = authorObj ? (authorObj.color || authorObj.nickColor) : null;
 
@@ -274,9 +378,10 @@ class VkLiveConnector {
   }
 
   disconnect() {
+    this.connectionId += 1;
     this.channel = '';
     this.channelId = null;
-    this.cleanup();
+    this.stopPolling();
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.onerror = null;
@@ -286,11 +391,9 @@ class VkLiveConnector {
     this.seenMessageIds.clear();
     this.onStatus('vk', false, 'Офлайн');
   }
+}
 
-  cleanup() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-  }
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = VkLiveConnector;
+  module.exports.CONFIG = VK_LIVE_CONNECTOR_CONFIG;
 }
