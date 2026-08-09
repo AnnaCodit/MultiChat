@@ -110,6 +110,22 @@ test('polling emits messages chronologically and deduplicates repeated responses
   assert.equal(context.messages[0].color, '#123456');
 });
 
+test('numeric VK nickname colors are converted from palette indexes to CSS colors', () => {
+  const context = createConnector();
+  const colors = [0, 5, 12, 13];
+
+  colors.forEach((nickColor, index) => {
+    const message = pollingMessage(index + 1, index + 1, `Сообщение ${index + 1}`);
+    message.author.nickColor = nickColor;
+    context.connector.handleCentrifugoPublication(message);
+  });
+
+  assert.deepEqual(
+    context.messages.map(message => message.color),
+    ['#D66E34', '#E73629', '#A36C59', '#8BA259']
+  );
+});
+
 test('disconnect aborts an in-flight poll and prevents stale messages from being published', async () => {
   let releaseRequest;
   const pendingResponse = new Promise(resolve => {

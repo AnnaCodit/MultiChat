@@ -49,6 +49,16 @@ test('author markup uses canonical Twitch login without depending on popup rende
   assert.doesNotMatch(html, /data-twitch-username="ОтображаемоеИмя"/);
 });
 
+test('color and HTML normalization safely handle primitive values', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+
+  assert.equal(app.normalizeColor(5), '5');
+  assert.equal(app.normalizeColor(0), '0');
+  assert.equal(app.escapeHTML(5), '5');
+  assert.equal(app.escapeHTML(null), '');
+});
+
 test('cache-busted styles are requested in head before body parsing', () => {
   const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
   const headEnd = html.indexOf('</head>');

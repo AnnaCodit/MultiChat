@@ -9,6 +9,14 @@ const VK_LIVE_CONNECTOR_CONFIG = Object.freeze({
   pollMessageLimit: 20
 });
 
+// VK sends nickColor as an index into the palette used by its own chat frontend.
+const VK_LIVE_NICK_COLORS = Object.freeze([
+  '#D66E34', '#B8AAFF', '#1D90FF', '#9961F9',
+  '#59A840', '#E73629', '#DE6489', '#20BBA1',
+  '#F8B301', '#0099BB', '#7BBEFF', '#E542FF',
+  '#A36C59', '#8BA259', '#00A9FF', '#A20BFF'
+]);
+
 class VkLiveConnector {
   constructor(onMessageCallback, onStatusCallback, options = {}) {
     this.onMessage = onMessageCallback;
@@ -301,7 +309,7 @@ class VkLiveConnector {
       // Extract author
       const authorObj = payload.author || payload.sender || payload.user || null;
       const author = authorObj ? (authorObj.displayName || authorObj.nick || authorObj.name) : 'VKUser';
-      const color = authorObj ? (authorObj.color || authorObj.nickColor) : null;
+      const color = this.resolveAuthorColor(authorObj);
 
       // Extract & parse message text (unpacks Draft.js tuples like ["сообщение","unstyled",[]])
       const text = this.parseVkText(payload.content || payload.data || payload.text);
@@ -338,6 +346,24 @@ class VkLiveConnector {
     } catch (e) {
       console.error('[VK Live Connector] Error handling publication:', e);
     }
+  }
+
+  resolveAuthorColor(authorObj) {
+    if (!authorObj) return null;
+
+    const rawColor = authorObj.color ?? authorObj.nickColor;
+    if (rawColor === null || rawColor === undefined) return null;
+
+    const normalizedColor = String(rawColor).trim();
+    if (!normalizedColor) return null;
+
+    if (/^\d+$/.test(normalizedColor)) {
+      const paletteIndex = Number(normalizedColor);
+      return VK_LIVE_NICK_COLORS[paletteIndex] || null;
+    }
+
+    // Older publication formats may already contain a ready-to-use CSS color.
+    return normalizedColor;
   }
 
   parseVkText(content) {
@@ -396,4 +422,5 @@ class VkLiveConnector {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = VkLiveConnector;
   module.exports.CONFIG = VK_LIVE_CONNECTOR_CONFIG;
+  module.exports.NICK_COLORS = VK_LIVE_NICK_COLORS;
 }

@@ -440,8 +440,9 @@ class MultiChatApp {
   }
 
   normalizeColor(color) {
-    if (!color) return null;
+    if (color === null || color === undefined) return null;
     const cleanColor = String(color).trim().toLowerCase();
+    if (!cleanColor) return null;
     const compactColor = cleanColor.replace(/\s+/g, '');
 
     // Replace unreadable bright blue rgb(0, 0, 255) / #0000ff / #00f / blue with readable rgb(153, 153, 255)
@@ -455,7 +456,7 @@ class MultiChatApp {
       return 'rgb(153, 153, 255)';
     }
 
-    return color;
+    return cleanColor;
   }
 
   normalizeTwitchLogin(value) {
@@ -463,7 +464,7 @@ class MultiChatApp {
   }
 
   escapeHTML(str) {
-    return (str || '')
+    return String(str ?? '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
