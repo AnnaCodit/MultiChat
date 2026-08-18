@@ -252,7 +252,7 @@ class MultiChatApp {
       const countEl = this.kickViewerCountEl || document.getElementById('kickViewerCount');
       if (countEl) {
         if (isOnline && typeof viewerCount === 'number') {
-          countEl.textContent = viewerCount.toLocaleString('ru-RU');
+          countEl.textContent = String(viewerCount);
         } else {
           countEl.textContent = '';
         }

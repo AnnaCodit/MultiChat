@@ -124,7 +124,7 @@ test('updateStatus updates Kick badge and viewer count element when online with 
   assert.ok(statusBadge.classList.contains('online'));
   assert.ok(!statusBadge.classList.contains('offline'));
   assert.equal(statusBadge.title, 'KICK: Онлайн (testchannel)');
-  assert.equal(countEl.textContent, (1420).toLocaleString('ru-RU'));
+  assert.equal(countEl.textContent, '1420');
 });
 
 test('updateStatus clears Kick viewer count when offline or viewer count is not a number', () => {
@@ -138,7 +138,7 @@ test('updateStatus clears Kick viewer count when offline or viewer count is not 
     title: ''
   };
   const countEl = {
-    textContent: '1 420'
+    textContent: '1420'
   };
   const elements = {
     statusKick: statusBadge,
@@ -159,7 +159,7 @@ test('updateStatus clears Kick viewer count when offline or viewer count is not 
   assert.equal(countEl.textContent, '');
 
   // Offline with count
-  countEl.textContent = '1 420';
+  countEl.textContent = '1420';
   app.updateStatus('kick', false, 'Офлайн', 1420);
   assert.ok(statusBadge.classList.contains('offline'));
   assert.ok(!statusBadge.classList.contains('online'));
