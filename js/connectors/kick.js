@@ -3,15 +3,22 @@
  * Subscribes to Kick chatroom events using Kick Pusher WebSocket protocol
  */
 
+const KICK_CONNECTOR_CONFIG = Object.freeze({
+  viewerPollIntervalMs: 20000
+});
+
 class KickConnector {
-  constructor(onMessageCallback, onStatusCallback) {
+  constructor(onMessageCallback, onStatusCallback, options = {}) {
     this.onMessage = onMessageCallback;
     this.onStatus = onStatusCallback;
+    this.fetcher = options.fetcher || ((url, init) => (typeof fetchWithCorsProxy === 'function' ? fetchWithCorsProxy(url, init) : fetch(url, init)));
     this.ws = null;
     this.channel = '';
     this.chatroomId = null;
     this.reconnectTimer = null;
     this.pingInterval = null;
+    this.viewerPollTimer = null;
+    this.viewerCount = null;
   }
 
   async connect(channelInput) {
@@ -35,7 +42,7 @@ class KickConnector {
 
     // Check localStorage cache first to avoid CORS proxy calls
     const cacheKey = `kick_chatroom_id_${this.channel}`;
-    const cachedId = localStorage.getItem(cacheKey);
+    const cachedId = typeof localStorage !== 'undefined' ? localStorage.getItem(cacheKey) : null;
     if (cachedId) {
       this.chatroomId = cachedId;
       console.log(`[Kick Connector] Using cached Chatroom ID (${cachedId}) for ${this.channel}`);
@@ -49,7 +56,7 @@ class KickConnector {
     let foundId = await this.resolveChatroomId(this.channel);
     if (foundId) {
       this.chatroomId = foundId;
-      localStorage.setItem(cacheKey, foundId);
+      if (typeof localStorage !== 'undefined') localStorage.setItem(cacheKey, foundId);
       console.log(`[Kick Connector] Resolved Chatroom ID: ${this.chatroomId}. Connecting Pusher WS...`);
       this.initPusherWS();
     } else {
@@ -60,8 +67,8 @@ class KickConnector {
   async resolveChatroomId(channelName) {
     // 1. Direct fetch if server permits
     try {
-      const res = await fetchWithCorsProxy(`https://kick.com/api/v2/channels/${encodeURIComponent(channelName)}`);
-      if (res.ok) {
+      const res = await this.fetcher(`https://kick.com/api/v2/channels/${encodeURIComponent(channelName)}`);
+      if (res && res.ok) {
         const data = await res.json();
         if (data && data.chatroom && data.chatroom.id) return String(data.chatroom.id);
       }
@@ -69,8 +76,8 @@ class KickConnector {
 
     // 2. Fetch v1 API
     try {
-      const res = await fetchWithCorsProxy(`https://kick.com/api/v1/channels/${encodeURIComponent(channelName)}`);
-      if (res.ok) {
+      const res = await this.fetcher(`https://kick.com/api/v1/channels/${encodeURIComponent(channelName)}`);
+      if (res && res.ok) {
         const data = await res.json();
         if (data && data.chatroom && data.chatroom.id) return String(data.chatroom.id);
       }
@@ -86,6 +93,43 @@ class KickConnector {
     }
 
     return null;
+  }
+
+  async fetchViewerCount() {
+    if (!this.channel) return null;
+    try {
+      const res = await this.fetcher(`https://kick.com/api/v2/channels/${encodeURIComponent(this.channel)}`);
+      if (res && res.ok) {
+        const data = await res.json();
+        const count = data?.livestream?.viewer_count;
+        this.viewerCount = typeof count === 'number' ? count : null;
+        if (typeof this.onStatus === 'function') {
+          this.onStatus('kick', true, 'Онлайн (' + this.channel + ')', this.viewerCount);
+        }
+        return this.viewerCount;
+      } else {
+        console.warn(`[Kick Connector] Failed to fetch viewer count: status ${res?.status}`);
+        return null;
+      }
+    } catch (err) {
+      console.warn('[Kick Connector] Error fetching viewer count:', err);
+      return null;
+    }
+  }
+
+  startViewerPolling() {
+    this.stopViewerPolling();
+    this.fetchViewerCount();
+    this.viewerPollTimer = setInterval(() => {
+      this.fetchViewerCount();
+    }, KICK_CONNECTOR_CONFIG.viewerPollIntervalMs);
+  }
+
+  stopViewerPolling() {
+    if (this.viewerPollTimer) {
+      clearInterval(this.viewerPollTimer);
+      this.viewerPollTimer = null;
+    }
   }
 
   initPusherWS() {
@@ -115,6 +159,8 @@ class KickConnector {
             this.ws.send(JSON.stringify({ event: 'pusher:ping', data: {} }));
           }
         }, 30000);
+
+        this.startViewerPolling();
       };
 
       this.ws.onmessage = (event) => {
@@ -189,6 +235,8 @@ class KickConnector {
   disconnect() {
     this.channel = '';
     this.chatroomId = null;
+    this.viewerCount = null;
+    this.stopViewerPolling();
     this.cleanup();
     if (this.ws) {
       this.ws.onclose = null;
@@ -200,6 +248,7 @@ class KickConnector {
   }
 
   cleanup() {
+    this.stopViewerPolling();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -209,4 +258,10 @@ class KickConnector {
       this.pingInterval = null;
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = KickConnector;
+  module.exports.CONFIG = KICK_CONNECTOR_CONFIG;
+  module.exports.KICK_CONNECTOR_CONFIG = KICK_CONNECTOR_CONFIG;
 }
