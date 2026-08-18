@@ -2,6 +2,7 @@ node_modules/
 scratch/
 plans/
 docs/
+.superpowers/
 .env
 *sftp*
 proxy/settings.php
