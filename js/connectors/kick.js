@@ -99,8 +99,10 @@ class KickConnector {
     if (!this.channel) return null;
     try {
       const res = await this.fetcher(`https://kick.com/api/v2/channels/${encodeURIComponent(this.channel)}`);
+      if (!this.channel) return null;
       if (res && res.ok) {
         const data = await res.json();
+        if (!this.channel) return null;
         const count = data?.livestream?.viewer_count;
         this.viewerCount = typeof count === 'number' ? count : null;
         if (typeof this.onStatus === 'function') {

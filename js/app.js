@@ -13,7 +13,7 @@ class MultiChatApp {
 
     // Connectors
     this.twitch = new TwitchConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
-    this.kick = new KickConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
+    this.kick = new KickConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc, viewerCount) => this.updateStatus(plat, active, desc, viewerCount));
     this.vk = new VkLiveConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
     this.youtube = new YoutubeConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
 
@@ -21,6 +21,7 @@ class MultiChatApp {
     this.chatContainerEl = document.getElementById('chatContainer');
     this.unreadBadgeEl = document.getElementById('unreadBadge');
     this.unreadBadgeTextEl = document.getElementById('unreadBadgeText');
+    this.kickViewerCountEl = document.getElementById('kickViewerCount');
     this.twitchUserPopup = new TwitchUserPopup({
       chatMessagesEl: this.chatMessagesEl,
       chatContainerEl: this.chatContainerEl,
@@ -224,7 +225,7 @@ class MultiChatApp {
     }
   }
 
-  updateStatus(platform, isOnline, description) {
+  updateStatus(platform, isOnline, description, viewerCount = null) {
     const badgeMap = {
       twitch: 'statusTwitch',
       kick: 'statusKick',
@@ -246,6 +247,17 @@ class MultiChatApp {
       el.classList.add('offline');
     }
     el.title = `${platform.toUpperCase()}: ${description}`;
+
+    if (platform === 'kick') {
+      const countEl = this.kickViewerCountEl || document.getElementById('kickViewerCount');
+      if (countEl) {
+        if (isOnline && typeof viewerCount === 'number') {
+          countEl.textContent = viewerCount.toLocaleString('ru-RU');
+        } else {
+          countEl.textContent = '';
+        }
+      }
+    }
   }
 
   handleIncomingMessage(msg) {
@@ -396,13 +408,13 @@ class MultiChatApp {
     const mod10 = count % 10;
     const mod100 = count % 100;
 
-    let word = 'сообщений';
+    let word = 'новых сообщений';
     if (mod100 >= 11 && mod100 <= 19) {
-      word = 'сообщений';
+      word = 'новых сообщений';
     } else if (mod10 === 1) {
-      word = 'сообщение';
+      word = 'новое сообщение';
     } else if (mod10 >= 2 && mod10 <= 4) {
-      word = 'сообщения';
+      word = 'новых сообщения';
     }
 
     return `↓ ${count} ${word}`;

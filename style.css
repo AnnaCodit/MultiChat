@@ -117,6 +117,22 @@ body.dark-theme {
   color: var(--accent-green);
 }
 
+.status-kick.online {
+  background-color: rgba(139, 0, 0, 0.4);
+  border-color: rgba(220, 38, 38, 0.4);
+  color: #ffcccc;
+}
+
+.status-kick .viewer-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+.status-kick .viewer-count:empty {
+  display: none;
+}
+
 .status-vk .platform-icon {
   background-color: var(--accent-blue);
   color: var(--accent-blue);

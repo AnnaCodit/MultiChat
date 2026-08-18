@@ -6,11 +6,12 @@ const vm = require('node:vm');
 
 const projectRoot = path.resolve(__dirname, '..');
 
-function loadMultiChatApp() {
+function loadMultiChatApp(extraSandbox = {}) {
   const sandbox = {
     console: { log() {}, warn() {}, error() {} },
-    document: { readyState: 'loading' },
-    window: { addEventListener() {} }
+    document: { readyState: 'loading', getElementById() { return null; } },
+    window: { addEventListener() {} },
+    ...extraSandbox
   };
   vm.createContext(sandbox);
   const source = fs.readFileSync(path.join(projectRoot, 'js/app.js'), 'utf8');
@@ -82,4 +83,95 @@ test('Twitch badges are hidden by a parent state class without changing badge ma
     /\.chat-messages\.hide-twitch-badges\s+\.msg-platform\.twitch\s*\+\s*\.msg-badges/
   );
   assert.doesNotMatch(css, /twitch-badges-hidden/);
+});
+
+test('index.html contains #kickViewerCount element within #statusKick badge', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(
+    html,
+    /<span class="status-badge status-kick offline" id="statusKick" title="Kick">\s*<span class="platform-icon kick-icon"><\/span>\s*KI\s*<span id="kickViewerCount" class="viewer-count"><\/span>\s*<\/span>/
+  );
+});
+
+test('updateStatus updates Kick badge and viewer count element when online with number count', () => {
+  const statusBadge = {
+    classList: {
+      classes: new Set(['status-badge', 'status-kick', 'offline']),
+      remove(c) { this.classes.delete(c); },
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    title: ''
+  };
+  const countEl = {
+    textContent: ''
+  };
+  const elements = {
+    statusKick: statusBadge,
+    kickViewerCount: countEl
+  };
+
+  const MultiChatApp = loadMultiChatApp({
+    document: {
+      readyState: 'loading',
+      getElementById: (id) => elements[id] || null
+    }
+  });
+
+  const app = Object.create(MultiChatApp.prototype);
+  app.updateStatus('kick', true, 'Онлайн (testchannel)', 1420);
+
+  assert.ok(statusBadge.classList.contains('online'));
+  assert.ok(!statusBadge.classList.contains('offline'));
+  assert.equal(statusBadge.title, 'KICK: Онлайн (testchannel)');
+  assert.equal(countEl.textContent, (1420).toLocaleString('ru-RU'));
+});
+
+test('updateStatus clears Kick viewer count when offline or viewer count is not a number', () => {
+  const statusBadge = {
+    classList: {
+      classes: new Set(['status-badge', 'status-kick', 'online']),
+      remove(c) { this.classes.delete(c); },
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    title: ''
+  };
+  const countEl = {
+    textContent: '1 420'
+  };
+  const elements = {
+    statusKick: statusBadge,
+    kickViewerCount: countEl
+  };
+
+  const MultiChatApp = loadMultiChatApp({
+    document: {
+      readyState: 'loading',
+      getElementById: (id) => elements[id] || null
+    }
+  });
+
+  const app = Object.create(MultiChatApp.prototype);
+
+  // Online but null count
+  app.updateStatus('kick', true, 'Онлайн (testchannel)', null);
+  assert.equal(countEl.textContent, '');
+
+  // Offline with count
+  countEl.textContent = '1 420';
+  app.updateStatus('kick', false, 'Офлайн', 1420);
+  assert.ok(statusBadge.classList.contains('offline'));
+  assert.ok(!statusBadge.classList.contains('online'));
+  assert.equal(countEl.textContent, '');
+});
+
+test('style.css defines dark-red badge styling and viewer-count layout for Kick', () => {
+  const css = fs.readFileSync(path.join(projectRoot, 'style.css'), 'utf8');
+  assert.match(css, /\.status-kick\.online\s*\{[^}]*background-color:\s*rgba\(139,\s*0,\s*0,\s*0\.4\)/);
+  assert.match(css, /\.status-kick\.online\s*\{[^}]*border-color:\s*rgba\(220,\s*38,\s*38,\s*0\.4\)/);
+  assert.match(css, /\.status-kick\.online\s*\{[^}]*color:\s*#ffcccc/);
+  assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
+  assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-weight:\s*700/);
+  assert.match(css, /\.status-kick\s+\.viewer-count:empty\s*\{[^}]*display:\s*none/);
 });
