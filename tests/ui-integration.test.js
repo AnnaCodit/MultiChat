@@ -76,7 +76,7 @@ test('cache-busted styles are requested in head before body parsing', () => {
 });
 
 test('Twitch badges are hidden by a parent state class without changing badge markup', () => {
-  const css = fs.readFileSync(path.join(projectRoot, 'style.css'), 'utf8');
+  const css = fs.readFileSync(path.join(projectRoot, 'css', 'style.css'), 'utf8');
 
   assert.match(
     css,
@@ -167,7 +167,7 @@ test('updateStatus clears Kick viewer count when offline or viewer count is not 
 });
 
 test('style.css defines dark-red color and layout for Kick viewer count', () => {
-  const css = fs.readFileSync(path.join(projectRoot, 'style.css'), 'utf8');
+  const css = fs.readFileSync(path.join(projectRoot, 'css', 'style.css'), 'utf8');
   assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*color:\s*#dc2626/);
   assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
   assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-weight:\s*700/);
