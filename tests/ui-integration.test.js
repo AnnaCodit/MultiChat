@@ -166,11 +166,9 @@ test('updateStatus clears Kick viewer count when offline or viewer count is not 
   assert.equal(countEl.textContent, '');
 });
 
-test('style.css defines dark-red badge styling and viewer-count layout for Kick', () => {
+test('style.css defines dark-red color and layout for Kick viewer count', () => {
   const css = fs.readFileSync(path.join(projectRoot, 'style.css'), 'utf8');
-  assert.match(css, /\.status-kick\.online\s*\{[^}]*background-color:\s*rgba\(139,\s*0,\s*0,\s*0\.4\)/);
-  assert.match(css, /\.status-kick\.online\s*\{[^}]*border-color:\s*rgba\(220,\s*38,\s*38,\s*0\.4\)/);
-  assert.match(css, /\.status-kick\.online\s*\{[^}]*color:\s*#ffcccc/);
+  assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*color:\s*#dc2626/);
   assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
   assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-weight:\s*700/);
   assert.match(css, /\.status-kick\s+\.viewer-count:empty\s*\{[^}]*display:\s*none/);
