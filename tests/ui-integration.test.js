@@ -173,3 +173,80 @@ test('style.css defines dark-red color and layout for Kick viewer count', () => 
   assert.match(css, /\.status-kick\s+\.viewer-count\s*\{[^}]*font-weight:\s*700/);
   assert.match(css, /\.status-kick\s+\.viewer-count:empty\s*\{[^}]*display:\s*none/);
 });
+
+test('renderMessageNode renders collapsed-reply with === placeholder when shouldCollapse is true', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+  const appendedElements = [];
+  app.chatMessagesEl = {
+    appendChild: (el) => appendedElements.push(el)
+  };
+  app.settings = { settings: { maxChatMessages: 200 } };
+  app.pruneExcessMessages = () => {};
+  app.escapeHTML = (s) => String(s || '');
+  app.normalizeColor = (c) => c;
+  app.renderAuthorHTML = (msg, escaped) => `<span class="msg-author">${escaped}</span>`;
+  app.emotes = { getBadgesHTML: () => '' };
+
+  const fakeElement = {
+    className: '',
+    classList: {
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    dataset: {},
+    innerHTML: ''
+  };
+
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: () => fakeElement
+  };
+
+  const MultiChatAppWithDoc = loadMultiChatApp({ document: sandboxDocument });
+  const app2 = Object.create(MultiChatAppWithDoc.prototype);
+  app2.chatMessagesEl = app.chatMessagesEl;
+  app2.settings = app.settings;
+  app2.pruneExcessMessages = app.pruneExcessMessages;
+  app2.escapeHTML = app.escapeHTML;
+  app2.normalizeColor = app.normalizeColor;
+  app2.renderAuthorHTML = app.renderAuthorHTML;
+  app2.emotes = app.emotes;
+
+  app2.renderMessageNode({ author: 'fra3a', text: '@viewer1 привет', platform: 'twitch' }, '@viewer1 привет', true);
+
+  assert.ok(fakeElement.classList.contains('collapsed-reply'));
+  assert.match(fakeElement.innerHTML, /===/);
+  assert.match(fakeElement.innerHTML, /collapsed-placeholder/);
+  assert.match(fakeElement.innerHTML, /collapsed-content/);
+});
+
+test('index.html contains #blockedKeywords input in settings modal', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /<input[^>]+id="blockedKeywords"/);
+});
+
+test('SettingsManager: getBlockedKeywords parses comma-separated keywords into lowercased trimmed array', () => {
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  manager.settings.blockedKeywords = ' Реклама , Купить Фолловеров,   спам , , ';
+  const keywords = manager.getBlockedKeywords();
+
+  assert.deepEqual(Array.from(keywords), ['реклама', 'купить фолловеров', 'спам']);
+});
+
+
+

@@ -11,6 +11,7 @@ const defaultSettings = {
   vkChannel: '',
   youtubeChannel: '',
   extraNicknames: '',
+  blockedKeywords: '',
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
   hideTwitchBadges: false,
@@ -35,7 +36,8 @@ class SettingsManager {
           'kickChannel',
           'vkChannel',
           'youtubeChannel',
-          'extraNicknames'
+          'extraNicknames',
+          'blockedKeywords'
         ];
         stringFields.forEach(field => {
           if (typeof settings[field] !== 'string') {
@@ -102,6 +104,19 @@ class SettingsManager {
   }
 
   /**
+   * Returns a normalized array of lowercased, trimmed keywords/phrases to block.
+   */
+  getBlockedKeywords() {
+    if (typeof this.settings.blockedKeywords !== 'string' || !this.settings.blockedKeywords) {
+      return [];
+    }
+    return this.settings.blockedKeywords
+      .split(',')
+      .map(kw => kw.toLowerCase().trim().replace(/\s+/g, ' '))
+      .filter(Boolean);
+  }
+
+  /**
    * Populate HTML Form inputs from current settings state.
    */
   populateForm() {
@@ -111,6 +126,11 @@ class SettingsManager {
     document.getElementById('youtubeChannel').value = this.settings.youtubeChannel || '';
     document.getElementById('extraNicknames').value = this.settings.extraNicknames || '';
     
+    const blockedKeywordsInput = document.getElementById('blockedKeywords');
+    if (blockedKeywordsInput) {
+      blockedKeywordsInput.value = this.settings.blockedKeywords || '';
+    }
+
     document.getElementById('hideChatterReplies').checked = !!this.settings.hideChatterReplies;
     document.getElementById('enableThirdPartyEmotes').checked = !!this.settings.enableThirdPartyEmotes;
     document.getElementById('hideTwitchBadges').checked = !!this.settings.hideTwitchBadges;
@@ -135,12 +155,15 @@ class SettingsManager {
   readForm() {
     const windowInput = document.getElementById('firstMessageWindowHours');
     const maxMessagesInput = document.getElementById('maxChatMessages');
+    const blockedKeywordsInput = document.getElementById('blockedKeywords');
+
     const newSettings = {
       twitchChannel: document.getElementById('twitchChannel').value.trim(),
       kickChannel: document.getElementById('kickChannel').value.trim(),
       vkChannel: document.getElementById('vkChannel').value.trim(),
       youtubeChannel: document.getElementById('youtubeChannel').value.trim(),
       extraNicknames: document.getElementById('extraNicknames').value.trim(),
+      blockedKeywords: blockedKeywordsInput ? blockedKeywordsInput.value.trim() : (this.settings.blockedKeywords || ''),
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
       hideTwitchBadges: document.getElementById('hideTwitchBadges').checked,
@@ -153,5 +176,10 @@ class SettingsManager {
   }
 }
 
-// Global instance
-window.settingsManager = new SettingsManager();
+// Global instance & CommonJS export
+if (typeof window !== 'undefined') {
+  window.settingsManager = new SettingsManager();
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SettingsManager;
+}

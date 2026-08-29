@@ -282,9 +282,10 @@ class MultiChatApp {
 
     const streamerNicknames = this.settings.getStreamerNicknames();
     const hideRepliesEnabled = this.settings.settings.hideChatterReplies;
+    const blockedKeywords = typeof this.settings.getBlockedKeywords === 'function' ? this.settings.getBlockedKeywords() : [];
 
-    // Evaluate chatter reply filter
-    const shouldCollapse = this.filter.shouldCollapseReply(msg, streamerNicknames, hideRepliesEnabled);
+    // Evaluate chatter reply and blocked keyword filter
+    const shouldCollapse = this.filter.shouldCollapseReply(msg, streamerNicknames, hideRepliesEnabled, blockedKeywords);
 
     // Evaluate streamer mention highlight
     const isMention = this.filter.isMentioningStreamer(msg, streamerNicknames);
