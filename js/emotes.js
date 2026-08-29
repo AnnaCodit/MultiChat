@@ -348,9 +348,9 @@ class EmoteManager {
   }
 
   /**
-   * Parse text message HTML, replacing native & 3rd party emotes with <img> elements
+   * Parse text message HTML, replacing native & 3rd party emotes and GIFs with <img> elements
    */
-  parseEmotes(text, twitchEmotesTag = null, nativeEmotes = []) {
+  parseEmotes(text, twitchEmotesTag = null, nativeEmotes = [], twitchGifsTag = null) {
     if (!text) return '';
 
     let processedText = String(text);
@@ -358,28 +358,33 @@ class EmoteManager {
     while (processedText.includes(placeholderPrefix)) placeholderPrefix += '_';
 
     const placeholders = [];
-    const reserveEmote = (url, code) => {
+    const reserveMedia = (url, code, isGif = false) => {
       if (!this.isSafeImageUrl(url)) return code;
 
       const token = `${placeholderPrefix}${placeholders.length}\uE001`;
       const cleanUrl = this.escapeAttr(url);
-      const cleanCode = this.escapeAttr(code || 'emote');
+      const cleanCode = this.escapeAttr(code || (isGif ? 'GIF' : 'emote'));
+      const html = isGif
+        ? `<img class="chat-gif" src="${cleanUrl}" title="${cleanCode}" loading="lazy">`
+        : `<img class="chat-emote" src="${cleanUrl}" alt="${cleanCode}" title="${cleanCode}" loading="lazy">`;
       placeholders.push({
         token,
-        html: `<img class="chat-emote" src="${cleanUrl}" alt="${cleanCode}" title="${cleanCode}" loading="lazy">`
+        html
       });
       return token;
     };
+    const reserveEmote = (url, code) => reserveMedia(url, code, false);
 
     const replacements = this.getTwitchNativeEmotes(processedText, twitchEmotesTag)
-      .concat(this.normalizeNativeEmotes(nativeEmotes));
+      .concat(this.normalizeNativeEmotes(nativeEmotes))
+      .concat(this.getTwitchNativeGifs(processedText, twitchGifsTag));
     replacements.sort((a, b) => b.start - a.start);
 
     let nextRangeStart = processedText.length;
-    replacements.forEach(({ start, end, code, url }) => {
+    replacements.forEach(({ start, end, code, url, isGif }) => {
       if (start < 0 || end < start || end >= processedText.length || end >= nextRangeStart) return;
 
-      const token = reserveEmote(url, code || processedText.substring(start, end + 1));
+      const token = reserveMedia(url, code || processedText.substring(start, end + 1), !!isGif);
       processedText = processedText.substring(0, start) + token + processedText.substring(end + 1);
       nextRangeStart = start;
     });
@@ -436,12 +441,52 @@ class EmoteManager {
             start,
             end,
             code: text.substring(start, end + 1),
-            url: `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(emoteId)}/default/dark/1.0`
+            url: `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(emoteId)}/default/dark/1.0`,
+            isGif: false
           });
         });
       });
     } catch (error) {
       console.error('[Emotes] Error parsing Twitch native emotes:', error);
+    }
+    return replacements;
+  }
+
+  getTwitchNativeGifs(text, gifsTag) {
+    if (!text || !gifsTag) return [];
+
+    const replacements = [];
+    try {
+      // Twitch IRC format: <start>-<end>|<gifID>|<gifURL>,...
+      // Use lookahead to avoid splitting on commas inside query parameters
+      gifsTag.split(/(?:^|,)(?=\d+-\d+\|)/).filter(Boolean).forEach(entry => {
+        if (!entry) return;
+        const pipeIdx1 = entry.indexOf('|');
+        if (pipeIdx1 === -1) return;
+        const pipeIdx2 = entry.indexOf('|', pipeIdx1 + 1);
+        if (pipeIdx2 === -1) return;
+
+        const rangeStr = entry.substring(0, pipeIdx1);
+        const gifId = entry.substring(pipeIdx1 + 1, pipeIdx2);
+        const gifUrl = entry.substring(pipeIdx2 + 1);
+
+        const [startStr, endStr] = rangeStr.split('-');
+        const start = Number.parseInt(startStr, 10);
+        const end = Number.parseInt(endStr, 10);
+
+        if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+        if (!this.isSafeImageUrl(gifUrl)) return;
+
+        replacements.push({
+          start,
+          end,
+          code: text.substring(start, end + 1),
+          url: gifUrl,
+          isGif: true
+        });
+      });
+    } catch (error) {
+      console.error('[Emotes] Error parsing Twitch native GIFs:', error);
     }
     return replacements;
   }

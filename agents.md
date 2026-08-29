@@ -12,5 +12,7 @@ Write simple, idiomatic, maintainable code that follows the best worldwide conve
 
 - Если понадобится php-интерпритатор, то он находится здесь "C:\laragon\bin\php\php-8.4.5-nts-Win32-vs17-x64"
 
+- Если задача средней или высокой сложности, обязательно запускай независимое код-ревью после выполнения задачи.
+
 
 

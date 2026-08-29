@@ -67,6 +67,23 @@ test('Twitch connector preserves canonical login separately from display name', 
   assert.equal(messages[0].author, 'ОтображаемоеИмя');
 });
 
+test('Twitch connector extracts native gifs tag from PRIVMSG', () => {
+  const TwitchConnector = loadTwitchConnector();
+  const messages = [];
+  const connector = new TwitchConnector(message => messages.push(message), () => {});
+
+  const fullGifUrl = 'https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=test1234&rid=giphy.gif&ct=g';
+  connector.parsePrivMsg(
+    `@display-name=TwitchDev;gifs=0-33|joSNxeswxuc74Juo8X|${fullGifUrl} `
+      + ':twitchdev!twitchdev@twitchdev.tmi.twitch.tv '
+      + 'PRIVMSG #twitch :[Y A Y Yes GIF by Djemilah Birnie]'
+  );
+
+  assert.equal(messages[0].login, 'twitchdev');
+  assert.equal(messages[0].gifs, `0-33|joSNxeswxuc74Juo8X|${fullGifUrl}`);
+  assert.equal(messages[0].tags.gifs, `0-33|joSNxeswxuc74Juo8X|${fullGifUrl}`);
+});
+
 test('popup builds channel and viewer card URLs from canonical login', () => {
   const { TwitchUserPopup } = loadTwitchPopup(async () => ({ ok: true, json: async () => [] }));
   const popup = Object.create(TwitchUserPopup.prototype);

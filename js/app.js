@@ -89,6 +89,18 @@ class MultiChatApp {
       color: 'rgb(0, 0, 255)',
       text: 'Проверка чтения ника: ярко-синий цвет автоматически заменён на доступный мягкий rgb(153, 153, 255)! 💙'
     });
+
+    // Demonstration Twitch message with native GIF (Tier 2/3 subscriber perk)
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'GifEnjoyer',
+      color: '#f59e0b',
+      badges: 'subscriber/12',
+      tags: {
+        gifs: '0-41|joSNxeswxuc74Juo8X|https://media4.giphy.com/media/joSNxeswxuc74Juo8X/giphy.gif?cid=095d7a5dzizsiwgabonagkmigggv8v1spfai91ac3x0dsiy0&ep=v1_gifs_trending&rid=giphy.gif&ct=g'
+      },
+      text: '[Scared Still Waiting GIF by Looney Tunes]'
+    });
   }
 
   initUI() {
@@ -283,9 +295,10 @@ class MultiChatApp {
     // Evaluate first-time chatter status
     const firstStatus = window.chatterTracker ? window.chatterTracker.processMessage(msg) : { isFirstTimeEver: false, isFirstToday: false };
 
-    // Format HTML content with emote parser (including Twitch native emote tags)
+    // Format HTML content with emote & GIF parser (including Twitch native emote tags and GIF tags)
     const twitchEmotesTag = (msg.tags && msg.tags.emotes) ? msg.tags.emotes : null;
-    const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag, msg.nativeEmotes);
+    const twitchGifsTag = (msg.tags && msg.tags.gifs) ? msg.tags.gifs : (msg.gifs || null);
+    const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag, msg.nativeEmotes, twitchGifsTag);
 
     // Render DOM node
     this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward);

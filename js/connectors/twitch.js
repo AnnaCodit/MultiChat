@@ -122,8 +122,14 @@ class TwitchConnector {
         lineToParse = line.substring(spaceIdx + 1);
 
         tagsRaw.split(';').forEach(tag => {
-          const [key, val] = tag.split('=');
-          tags[key] = val || '';
+          const eqIdx = tag.indexOf('=');
+          if (eqIdx === -1) {
+            tags[tag] = '';
+          } else {
+            const key = tag.substring(0, eqIdx);
+            const val = tag.substring(eqIdx + 1);
+            tags[key] = val;
+          }
         });
       }
 
@@ -147,6 +153,9 @@ class TwitchConnector {
       const userColor = tags['color'] || null;
       const userBadges = tags['badges'] || null;
 
+      // Extract native Twitch GIFs tag (Tier 2/3 subscriber GIFs)
+      const userGifs = tags['gifs'] || null;
+
       // Detect Channel Points custom reward redemption tag
       const isRewardRedemption = !!(tags['custom-reward-id'] || (tags['msg-id'] && tags['msg-id'].includes('custom-reward')));
 
@@ -157,6 +166,7 @@ class TwitchConnector {
         text: content,
         color: userColor,
         badges: userBadges,
+        gifs: userGifs,
         replyTo: replyTo,
         isRewardRedemption: isRewardRedemption,
         tags: tags

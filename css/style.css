@@ -401,6 +401,19 @@ body.dark-theme {
   margin: -0.15em 0.15em 0 0.15em;
 }
 
+/* Twitch Tier 2/3 GIFs & Embedded Media */
+.chat-gif {
+  display: block;
+  width: auto;
+  max-width: 260px;
+  max-width: min(100%, 260px);
+  max-height: 150px;
+  height: auto;
+  border-radius: 6px;
+  margin: 4px 0 2px;
+  object-fit: contain;
+}
+
 /* Hidden Chatter-to-Chatter Reply Placeholder */
 .chat-line.collapsed-reply {
   /* background-color: rgba(255, 255, 255, 0.015); */
