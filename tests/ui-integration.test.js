@@ -423,3 +423,20 @@ test('MultiChatApp: handleIncomingMessage passes ignoredUsers to shouldCollapseR
   assert.deepEqual(capturedArgs[3], ['stopword']);
   assert.deepEqual(capturedArgs[4], ['bot_nick']);
 });
+
+test('index.html wraps platform channel inputs in .channel-row containers', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /<div class="channel-row">\s*<label for="twitchChannel">/);
+  assert.match(html, /<div class="channel-row">\s*<label for="kickChannel">/);
+  assert.match(html, /<div class="channel-row">\s*<label for="vkChannel">/);
+  assert.match(html, /<div class="channel-row">\s*<label for="youtubeChannel">/);
+});
+
+test('style.css defines .channel-row flex layout and custom scrollbar for .modal-body', () => {
+  const css = fs.readFileSync(path.join(projectRoot, 'css', 'style.css'), 'utf8');
+  assert.match(css, /\.channel-row\s*\{[^}]*display:\s*flex/);
+  assert.match(css, /\.channel-row\s*\{[^}]*align-items:\s*center/);
+  assert.match(css, /\.modal-body\s*\{[^}]*scrollbar-width:\s*thin/);
+  assert.match(css, /\.modal-body::-webkit-scrollbar\s*\{[^}]*width:\s*6px/);
+  assert.match(css, /\.modal-body::-webkit-scrollbar-thumb\s*\{/);
+});

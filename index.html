@@ -106,24 +106,24 @@
           <section class="settings-group">
             <h3>Каналы трансляций</h3>
             <p class="settings-hint">Укажите имя канала или логин для каждой платформы:</p>
-            <div class="form-row">
+            <div class="channel-row">
               <label for="twitchChannel">
                 <span class="platform-icon twitch-icon"></span> Twitch </label>
               <input type="text" id="twitchChannel" placeholder="например, streamer_name">
             </div>
-            <div class="form-row">
+            <div class="channel-row">
               <label for="kickChannel">
                 <span class="platform-icon kick-icon"></span> Kick </label>
               <input type="text" id="kickChannel" placeholder="например, streamer_name или Chatroom ID">
             </div>
-            <div class="form-row">
+            <div class="channel-row">
               <label for="vkChannel">
                 <span class="platform-icon vk-icon"></span> ВК </label>
               <input type="text" id="vkChannel" placeholder="например, streamer_name">
             </div>
-            <div class="form-row">
+            <div class="channel-row">
               <label for="youtubeChannel">
-                <span class="platform-icon youtube-icon"></span> YouTube (YT) </label>
+                <span class="platform-icon youtube-icon"></span> YouTube </label>
               <input type="text" id="youtubeChannel" placeholder="Имя канала (@handle) или ID трансляции">
             </div>
           </section>
@@ -139,7 +139,8 @@
           <!-- Favorite Users / Highlighted Users -->
           <section class="settings-group">
             <h3>Избранные пользователи</h3>
-            <p class="settings-hint">Выделять сообщения указанных пользователей как особенные в ленте чата (через запятую):</p>
+            <p class="settings-hint">Выделять сообщения указанных пользователей как особенные в ленте чата (через
+              запятую):</p>
             <div class="form-row">
               <input type="text" id="favoriteUsers" placeholder="например: friend_nick, @moderator, VIP_user">
             </div>
@@ -163,7 +164,8 @@
           <!-- Blocked Keywords & Phrases Filtering -->
           <section class="settings-group">
             <h3>Ключевые слова для скрытия</h3>
-            <p class="settings-hint">Сворачивать под спойлер сообщения, содержащие указанные слова или фразы (через запятую):</p>
+            <p class="settings-hint">Сворачивать под спойлер сообщения, содержащие указанные слова или фразы (через
+              запятую):</p>
             <div class="form-row">
               <input type="text" id="blockedKeywords" placeholder="например: реклама, купить фолловеров, спам">
             </div>
@@ -171,7 +173,8 @@
           <!-- Ignored Users / Bots Filtering -->
           <section class="settings-group">
             <h3>Игнорируемые пользователи и боты</h3>
-            <p class="settings-hint">Сворачивать под спойлер сообщения указанных пользователей и ботов (через запятую):</p>
+            <p class="settings-hint">Сворачивать под спойлер сообщения указанных пользователей и ботов (через запятую):
+            </p>
             <div class="form-row">
               <input type="text" id="ignoredUsers" placeholder="например: Nightbot, StreamElements, Moobot">
             </div>
@@ -216,18 +219,18 @@
           <section class="settings-group">
             <h3>Интервал первого сообщения</h3>
             <p class="settings-hint">Считать сообщение первым за стрим, если зритель не писал в чат (в часах):</p>
-            <div class="form-row">
+            <div class="form-row form-row-inline">
               <input type="number" id="firstMessageWindowHours" min="1" max="168" value="12" style="width: 100px;">
-              <span style="font-size: 0.9em; color: var(--text-muted); margin-left: 8px;">часов</span>
+              <span class="input-unit">часов</span>
             </div>
           </section>
           <!-- Max Chat Messages Limit Option -->
           <section class="settings-group">
             <h3>Лимит сообщений в ленте</h3>
             <p class="settings-hint">Максимальное количество одновременно отображаемых сообщений в чате:</p>
-            <div class="form-row">
+            <div class="form-row form-row-inline">
               <input type="number" id="maxChatMessages" min="20" max="1000" value="200" style="width: 100px;">
-              <span style="font-size: 0.9em; color: var(--text-muted); margin-left: 8px;">сообщений</span>
+              <span class="input-unit">сообщений</span>
             </div>
           </section>
         </form>
