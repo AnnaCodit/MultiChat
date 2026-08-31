@@ -59,6 +59,21 @@ class MessageFilter {
   }
 
   /**
+   * Checks if author or login is in the ignored users list (case-insensitive, ignores @ prefix).
+   * @param {Object} msg - The message object
+   * @param {Array<string>} ignoredUsers - List of lowercased ignored usernames
+   * @returns {boolean}
+   */
+  isAuthorIgnored(msg, ignoredUsers = []) {
+    if (!msg || !Array.isArray(ignoredUsers) || !ignoredUsers.length) {
+      return false;
+    }
+    const authorClean = (msg.author || '').toLowerCase().trim().replace(/^@+/, '');
+    const loginClean = (msg.login || '').toLowerCase().trim().replace(/^@+/, '');
+    return Boolean((authorClean && ignoredUsers.includes(authorClean)) || (loginClean && ignoredUsers.includes(loginClean)));
+  }
+
+  /**
    * Checks if message text contains any blocked keyword or phrase (case-insensitive).
    * @param {string} text
    * @param {Array<string>} blockedKeywords - List of lowercased keywords/phrases
@@ -78,7 +93,7 @@ class MessageFilter {
   }
 
   /**
-   * Checks if a message is a chatter-to-chatter reply, streamer-to-user reply/mention, or contains blocked keywords.
+   * Checks if a message is a chatter-to-chatter reply, streamer-to-user reply/mention, contains blocked keywords, or is from an ignored user.
    * @param {Object} msg - The message object
    * @param {string} msg.author - Author username
    * @param {string} msg.text - Message content
@@ -86,15 +101,32 @@ class MessageFilter {
    * @param {Array<string>} streamerNicknames - List of lowercased streamer nicknames/handles
    * @param {boolean} hideChatterRepliesEnabled - Whether the chatter replies filter toggle is ON
    * @param {Array<string>} blockedKeywords - List of lowercased keywords/phrases to collapse
-   * @returns {boolean} true if message should be collapsed into "[чаттерсы общаются]"
+   * @param {Array<string>} ignoredUsers - List of lowercased ignored usernames to collapse
+   * @returns {boolean} true if message should be collapsed into spoiler placeholder
    */
-  shouldCollapseReply(msg, streamerNicknames = [], hideChatterRepliesEnabled = true, blockedKeywords = []) {
+  shouldCollapseReply(msg, streamerNicknames = [], hideChatterRepliesEnabled = true, blockedKeywords = [], ignoredUsers = []) {
     if (!msg) {
       return false;
     }
 
-    // 0. Keyword/phrase stopword filter: collapse ANY message containing blocked keywords
+    const mentionsStreamer = this.isMentioningStreamer(msg, streamerNicknames);
+    const replyTargetClean = (msg.replyTo || '').toLowerCase().trim().replace(/^@+/, '');
+    const repliesToStreamer = Boolean(replyTargetClean && streamerNicknames.includes(replyTargetClean));
+    const isDirectlyForStreamer = mentionsStreamer || repliesToStreamer;
+
+    // 0. Keyword/phrase stopword filter: collapse messages containing blocked keywords UNLESS addressed to streamer
     if (this.containsBlockedKeyword(msg.text, blockedKeywords)) {
+      if (isDirectlyForStreamer) {
+        return false; // Do NOT hide if streamer is mentioned or replied to!
+      }
+      return true;
+    }
+
+    // 0b. Ignored users / bots filter: collapse messages from ignored users UNLESS addressed to streamer
+    if (this.isAuthorIgnored(msg, ignoredUsers)) {
+      if (isDirectlyForStreamer) {
+        return false; // Do NOT hide if streamer is mentioned or replied to!
+      }
       return true;
     }
 
@@ -125,7 +157,6 @@ class MessageFilter {
     }
 
     // 2. Regular chatter message: check if message mentions the streamer anywhere in text
-    const mentionsStreamer = this.isMentioningStreamer(msg, streamerNicknames);
     if (mentionsStreamer) {
       return false; // Do NOT hide if streamer is mentioned!
     }

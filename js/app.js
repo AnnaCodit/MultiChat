@@ -272,6 +272,13 @@ class MultiChatApp {
     }
   }
 
+  isAuthorFavorite(msg, favoriteUsers = []) {
+    if (!msg || !Array.isArray(favoriteUsers) || !favoriteUsers.length) return false;
+    const authorClean = (msg.author || '').toLowerCase().trim().replace(/^@+/, '');
+    const loginClean = (msg.login || '').toLowerCase().trim().replace(/^@+/, '');
+    return Boolean((authorClean && favoriteUsers.includes(authorClean)) || (loginClean && favoriteUsers.includes(loginClean)));
+  }
+
   handleIncomingMessage(msg) {
     if (!msg) return;
     if (msg.isDeleted || msg.isAuthorDeleted) {
@@ -281,14 +288,19 @@ class MultiChatApp {
     if (!msg.text) return;
 
     const streamerNicknames = this.settings.getStreamerNicknames();
+    const favoriteUsers = typeof this.settings.getFavoriteUsers === 'function' ? this.settings.getFavoriteUsers() : [];
     const hideRepliesEnabled = this.settings.settings.hideChatterReplies;
     const blockedKeywords = typeof this.settings.getBlockedKeywords === 'function' ? this.settings.getBlockedKeywords() : [];
+    const ignoredUsers = typeof this.settings.getIgnoredUsers === 'function' ? this.settings.getIgnoredUsers() : [];
 
-    // Evaluate chatter reply and blocked keyword filter
-    const shouldCollapse = this.filter.shouldCollapseReply(msg, streamerNicknames, hideRepliesEnabled, blockedKeywords);
+    // Evaluate chatter reply, blocked keyword, and ignored user filter
+    const shouldCollapse = this.filter.shouldCollapseReply(msg, streamerNicknames, hideRepliesEnabled, blockedKeywords, ignoredUsers);
 
     // Evaluate streamer mention highlight
     const isMention = this.filter.isMentioningStreamer(msg, streamerNicknames);
+
+    // Evaluate favorite user highlight
+    const isFavorite = this.isAuthorFavorite(msg, favoriteUsers);
 
     // Evaluate Channel Points reward redemption status
     const isReward = !!msg.isRewardRedemption || !!(msg.tags && msg.tags['custom-reward-id']);
@@ -302,7 +314,7 @@ class MultiChatApp {
     const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag, msg.nativeEmotes, twitchGifsTag);
 
     // Render DOM node
-    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward);
+    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward, isFavorite);
   }
 
   markDeletedMessages(msg) {
@@ -322,7 +334,7 @@ class MultiChatApp {
     });
   }
 
-  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false) {
+  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false, isFavorite = false) {
     const lineEl = document.createElement('div');
     lineEl.className = 'chat-line';
     if (msg.id) lineEl.dataset.messageId = String(msg.id);
@@ -333,6 +345,8 @@ class MultiChatApp {
       lineEl.classList.add('chat-line-reward');
     } else if (isMention) {
       lineEl.classList.add('chat-line-mention');
+    } else if (isFavorite) {
+      lineEl.classList.add('chat-line-favorite');
     }
 
     if (firstStatus.isFirstTimeEver) {
@@ -347,6 +361,11 @@ class MultiChatApp {
 
     // Badges HTML (Parses ALL user badges: Twitch, Kick & YouTube)
     let badgesHTML = this.emotes.getBadgesHTML(msg);
+
+    // Append Favorite User Badge if applicable
+    if (isFavorite) {
+      badgesHTML += `<span class="badge-favorite" title="Избранный пользователь">⭐ Избранный</span>`;
+    }
 
     // Append Channel Points Reward Badge if applicable
     if (isReward) {

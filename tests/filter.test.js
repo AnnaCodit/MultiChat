@@ -218,5 +218,67 @@ test('MessageFilter: matches blocked phrases even with multiple consecutive spac
   assert.equal(filter.shouldCollapseReply(msg, streamerNicknames, true, blockedKeywords), true);
 });
 
+test('MessageFilter: does not collapse message containing blocked keyword if streamer is mentioned or replied to', () => {
+  const filter = loadMessageFilter();
+  const blockedKeywords = ['реклама', 'спам'];
+  const msgMention = {
+    author: 'viewer1',
+    text: '@fra3a У нас лучшая РЕКЛАМА на районе!'
+  };
+  assert.equal(filter.shouldCollapseReply(msgMention, streamerNicknames, true, blockedKeywords), false);
 
+  const msgReply = {
+    author: 'viewer1',
+    text: 'Это не спам, а важная инфа',
+    replyTo: 'fra3a'
+  };
+  assert.equal(filter.shouldCollapseReply(msgReply, streamerNicknames, true, blockedKeywords), false);
+});
 
+test('MessageFilter: isAuthorIgnored matches author or login case-insensitively and strips @', () => {
+  const filter = loadMessageFilter();
+  const ignoredUsers = ['nightbot', 'streamelements', 'spam_bot'];
+
+  assert.equal(filter.isAuthorIgnored({ author: 'Nightbot' }, ignoredUsers), true);
+  assert.equal(filter.isAuthorIgnored({ author: 'Viewer', login: 'streamelements' }, ignoredUsers), true);
+  assert.equal(filter.isAuthorIgnored({ author: '@SPAM_BOT' }, ignoredUsers), true);
+  assert.equal(filter.isAuthorIgnored({ author: 'regular_viewer' }, ignoredUsers), false);
+  assert.equal(filter.isAuthorIgnored(null, ignoredUsers), false);
+  assert.equal(filter.isAuthorIgnored({ author: 'Nightbot' }, []), false);
+});
+
+test('MessageFilter: collapses message when author is in ignoredUsers list unless streamer is mentioned or replied to', () => {
+  const filter = loadMessageFilter();
+  const ignoredUsers = ['nightbot'];
+  const msg1 = {
+    author: 'Nightbot',
+    text: 'Подписывайтесь на наш Телеграм-канал: https://t.me/example'
+  };
+  // Regular bot message without streamer mention -> collapsed even if hideChatterReplies is false
+  assert.equal(filter.shouldCollapseReply(msg1, streamerNicknames, false, [], ignoredUsers), true);
+
+  const msg2 = {
+    author: 'Nightbot',
+    text: '@fra3a Стрим онлайн уже 3 часа!'
+  };
+  // Bot explicitly mentions streamer -> DO NOT collapse!
+  assert.equal(filter.shouldCollapseReply(msg2, streamerNicknames, true, [], ignoredUsers), false);
+
+  const msg3 = {
+    author: 'Nightbot',
+    text: 'Важное уведомление для стримера',
+    replyTo: 'fra3a'
+  };
+  // Bot replies to streamer -> DO NOT collapse!
+  assert.equal(filter.shouldCollapseReply(msg3, streamerNicknames, true, [], ignoredUsers), false);
+});
+
+test('MessageFilter: does not collapse message when author is not in ignoredUsers list', () => {
+  const filter = loadMessageFilter();
+  const ignoredUsers = ['nightbot'];
+  const msg = {
+    author: 'viewer1',
+    text: 'Привет всем!'
+  };
+  assert.equal(filter.shouldCollapseReply(msg, streamerNicknames, true, [], ignoredUsers), false);
+});

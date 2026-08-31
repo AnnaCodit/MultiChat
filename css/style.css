@@ -717,6 +717,27 @@ input:checked+.slider:before {
   background: linear-gradient(90deg, rgba(224, 86, 253, 0.15) 0%, rgba(224, 86, 253, 0.02) 100%);
 }
 
+/* Favorite User Badges & Line Highlights */
+.badge-favorite {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.chat-line-favorite {
+  border-left: 3px solid #f59e0b;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.16) 0%, rgba(245, 158, 11, 0.02) 100%);
+}
+
 .chat-line-mention {
   border-left: 3px solid #ef4444;
   background: linear-gradient(90deg, rgba(239, 68, 68, 0.28) 0%, rgba(220, 38, 38, 0.12) 100%);

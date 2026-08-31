@@ -248,5 +248,178 @@ test('SettingsManager: getBlockedKeywords parses comma-separated keywords into l
   assert.deepEqual(Array.from(keywords), ['реклама', 'купить фолловеров', 'спам']);
 });
 
+test('index.html contains #favoriteUsers input in settings modal', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /<input[^>]+id="favoriteUsers"/);
+});
 
+test('SettingsManager: getFavoriteUsers parses comma-separated usernames, stripping leading @ and trimming', () => {
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
 
+  const manager = new sandbox.SettingsManager();
+  manager.settings.favoriteUsers = ' @BestFriend, Cool_Viewer , @vip_mod, BestFriend,  ';
+  const favorites = manager.getFavoriteUsers();
+
+  assert.deepEqual(Array.from(favorites), ['bestfriend', 'cool_viewer', 'vip_mod']);
+});
+
+test('isAuthorFavorite correctly matches author or login case-insensitively', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+
+  const favorites = ['bestfriend', 'cool_mod'];
+
+  assert.equal(app.isAuthorFavorite({ author: 'BestFriend' }, favorites), true);
+  assert.equal(app.isAuthorFavorite({ author: '@bestfriend' }, favorites), true);
+  assert.equal(app.isAuthorFavorite({ author: 'SomeOther', login: 'cool_mod' }, favorites), true);
+  assert.equal(app.isAuthorFavorite({ author: 'RandomUser' }, favorites), false);
+  assert.equal(app.isAuthorFavorite(null, favorites), false);
+  assert.equal(app.isAuthorFavorite({ author: 'BestFriend' }, []), false);
+});
+
+test('renderMessageNode renders chat-line-favorite and badge-favorite when isFavorite is true', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+  const appendedElements = [];
+  app.chatMessagesEl = {
+    appendChild: (el) => appendedElements.push(el)
+  };
+  app.settings = { settings: { maxChatMessages: 200 } };
+  app.pruneExcessMessages = () => {};
+  app.escapeHTML = (s) => String(s || '');
+  app.normalizeColor = (c) => c;
+  app.renderAuthorHTML = (msg, escaped) => `<span class="msg-author">${escaped}</span>`;
+  app.emotes = { getBadgesHTML: () => '' };
+
+  const fakeElement = {
+    className: '',
+    classList: {
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    dataset: {},
+    innerHTML: ''
+  };
+
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: () => fakeElement
+  };
+
+  const MultiChatAppWithDoc = loadMultiChatApp({ document: sandboxDocument });
+  const app2 = Object.create(MultiChatAppWithDoc.prototype);
+  app2.chatMessagesEl = app.chatMessagesEl;
+  app2.settings = app.settings;
+  app2.pruneExcessMessages = app.pruneExcessMessages;
+  app2.escapeHTML = app.escapeHTML;
+  app2.normalizeColor = app.normalizeColor;
+  app2.renderAuthorHTML = app.renderAuthorHTML;
+  app2.emotes = app.emotes;
+
+  app2.renderMessageNode(
+    { author: 'BestFriend', text: 'Всем отличного стрима!', platform: 'twitch' },
+    'Всем отличного стрима!',
+    false,
+    {},
+    false,
+    false,
+    true
+  );
+
+  assert.ok(fakeElement.classList.contains('chat-line-favorite'));
+  assert.match(fakeElement.innerHTML, /class="badge-favorite"/);
+  assert.match(fakeElement.innerHTML, /⭐ Избранный/);
+});
+
+test('index.html contains #ignoredUsers input in settings modal', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /<input[^>]+id="ignoredUsers"/);
+});
+
+test('SettingsManager: default ignoredUsers contains popular streaming bots', () => {
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  const defaultBots = manager.getIgnoredUsers();
+
+  assert.ok(defaultBots.includes('nightbot'));
+  assert.ok(defaultBots.includes('streamelements'));
+  assert.ok(defaultBots.includes('moobot'));
+  assert.ok(defaultBots.includes('fossabot'));
+});
+
+test('SettingsManager: getIgnoredUsers parses comma-separated usernames, stripping leading @ and trimming', () => {
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  manager.settings.ignoredUsers = ' @Nightbot, StreamElements , @Spam_Bot, Nightbot,  ';
+  const ignored = manager.getIgnoredUsers();
+
+  assert.deepEqual(Array.from(ignored), ['nightbot', 'streamelements', 'spam_bot']);
+});
+
+test('MultiChatApp: handleIncomingMessage passes ignoredUsers to shouldCollapseReply', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+
+  let capturedArgs = null;
+  app.settings = {
+    getStreamerNicknames: () => ['streamer'],
+    getFavoriteUsers: () => [],
+    getBlockedKeywords: () => ['stopword'],
+    getIgnoredUsers: () => ['bot_nick'],
+    settings: { hideChatterReplies: true, firstMessageWindowHours: 12 }
+  };
+  app.filter = {
+    shouldCollapseReply: (...args) => {
+      capturedArgs = args;
+      return true;
+    },
+    isMentioningStreamer: () => false
+  };
+  app.isAuthorFavorite = () => false;
+  app.emotes = { parseEmotes: (t) => t };
+  app.renderMessageNode = () => {};
+
+  const msg = { author: 'bot_nick', text: 'Spam text' };
+  app.handleIncomingMessage(msg);
+
+  assert.ok(capturedArgs);
+  assert.equal(capturedArgs[0], msg);
+  assert.deepEqual(capturedArgs[1], ['streamer']);
+  assert.equal(capturedArgs[2], true);
+  assert.deepEqual(capturedArgs[3], ['stopword']);
+  assert.deepEqual(capturedArgs[4], ['bot_nick']);
+});

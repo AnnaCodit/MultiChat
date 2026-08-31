@@ -12,6 +12,8 @@ const defaultSettings = {
   youtubeChannel: '',
   extraNicknames: '',
   blockedKeywords: '',
+  ignoredUsers: 'Nightbot, StreamElements, Moobot, Fossabot, Wizebot, Botisimo, Streamlabs, RestreamBot',
+  favoriteUsers: '',
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
   hideTwitchBadges: false,
@@ -37,7 +39,9 @@ class SettingsManager {
           'vkChannel',
           'youtubeChannel',
           'extraNicknames',
-          'blockedKeywords'
+          'blockedKeywords',
+          'ignoredUsers',
+          'favoriteUsers'
         ];
         stringFields.forEach(field => {
           if (typeof settings[field] !== 'string') {
@@ -117,6 +121,40 @@ class SettingsManager {
   }
 
   /**
+   * Returns a normalized array of lowercased, trimmed ignored usernames without leading '@'.
+   */
+  getIgnoredUsers() {
+    if (typeof this.settings.ignoredUsers !== 'string' || !this.settings.ignoredUsers) {
+      return [];
+    }
+    const cleanNick = (str) => (typeof str === 'string' ? str : '').toLowerCase().trim().replace(/^@+/, '');
+    const names = new Set();
+    this.settings.ignoredUsers
+      .split(',')
+      .map(n => cleanNick(n))
+      .filter(Boolean)
+      .forEach(n => names.add(n));
+    return Array.from(names);
+  }
+
+  /**
+   * Returns a normalized array of lowercased, trimmed favorite usernames without leading '@'.
+   */
+  getFavoriteUsers() {
+    if (typeof this.settings.favoriteUsers !== 'string' || !this.settings.favoriteUsers) {
+      return [];
+    }
+    const cleanNick = (str) => (typeof str === 'string' ? str : '').toLowerCase().trim().replace(/^@+/, '');
+    const names = new Set();
+    this.settings.favoriteUsers
+      .split(',')
+      .map(n => cleanNick(n))
+      .filter(Boolean)
+      .forEach(n => names.add(n));
+    return Array.from(names);
+  }
+
+  /**
    * Populate HTML Form inputs from current settings state.
    */
   populateForm() {
@@ -126,9 +164,19 @@ class SettingsManager {
     document.getElementById('youtubeChannel').value = this.settings.youtubeChannel || '';
     document.getElementById('extraNicknames').value = this.settings.extraNicknames || '';
     
+    const favoriteUsersInput = document.getElementById('favoriteUsers');
+    if (favoriteUsersInput) {
+      favoriteUsersInput.value = this.settings.favoriteUsers || '';
+    }
+
     const blockedKeywordsInput = document.getElementById('blockedKeywords');
     if (blockedKeywordsInput) {
       blockedKeywordsInput.value = this.settings.blockedKeywords || '';
+    }
+
+    const ignoredUsersInput = document.getElementById('ignoredUsers');
+    if (ignoredUsersInput) {
+      ignoredUsersInput.value = this.settings.ignoredUsers || '';
     }
 
     document.getElementById('hideChatterReplies').checked = !!this.settings.hideChatterReplies;
@@ -156,6 +204,8 @@ class SettingsManager {
     const windowInput = document.getElementById('firstMessageWindowHours');
     const maxMessagesInput = document.getElementById('maxChatMessages');
     const blockedKeywordsInput = document.getElementById('blockedKeywords');
+    const ignoredUsersInput = document.getElementById('ignoredUsers');
+    const favoriteUsersInput = document.getElementById('favoriteUsers');
 
     const newSettings = {
       twitchChannel: document.getElementById('twitchChannel').value.trim(),
@@ -163,7 +213,9 @@ class SettingsManager {
       vkChannel: document.getElementById('vkChannel').value.trim(),
       youtubeChannel: document.getElementById('youtubeChannel').value.trim(),
       extraNicknames: document.getElementById('extraNicknames').value.trim(),
+      favoriteUsers: favoriteUsersInput ? favoriteUsersInput.value.trim() : (this.settings.favoriteUsers || ''),
       blockedKeywords: blockedKeywordsInput ? blockedKeywordsInput.value.trim() : (this.settings.blockedKeywords || ''),
+      ignoredUsers: ignoredUsersInput ? ignoredUsersInput.value.trim() : (this.settings.ignoredUsers || ''),
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
       hideTwitchBadges: document.getElementById('hideTwitchBadges').checked,
