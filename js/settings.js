@@ -19,6 +19,7 @@ const defaultSettings = {
   hideTwitchBadges: false,
   fontSize: 16,
   firstMessageWindowHours: 12,
+  raidLeaderDurationMinutes: 10,
   maxChatMessages: 200
 };
 
@@ -191,6 +192,11 @@ class SettingsManager {
       windowInput.value = this.settings.firstMessageWindowHours || 12;
     }
 
+    const raidLeaderInput = document.getElementById('raidLeaderDurationMinutes');
+    if (raidLeaderInput) {
+      raidLeaderInput.value = this.settings.raidLeaderDurationMinutes || 10;
+    }
+
     const maxMessagesInput = document.getElementById('maxChatMessages');
     if (maxMessagesInput) {
       maxMessagesInput.value = this.settings.maxChatMessages || 200;
@@ -202,6 +208,7 @@ class SettingsManager {
    */
   readForm() {
     const windowInput = document.getElementById('firstMessageWindowHours');
+    const raidLeaderInput = document.getElementById('raidLeaderDurationMinutes');
     const maxMessagesInput = document.getElementById('maxChatMessages');
     const blockedKeywordsInput = document.getElementById('blockedKeywords');
     const ignoredUsersInput = document.getElementById('ignoredUsers');
@@ -221,6 +228,7 @@ class SettingsManager {
       hideTwitchBadges: document.getElementById('hideTwitchBadges').checked,
       fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16,
       firstMessageWindowHours: windowInput ? (parseInt(windowInput.value, 10) || 12) : 12,
+      raidLeaderDurationMinutes: raidLeaderInput ? (parseInt(raidLeaderInput.value, 10) || 10) : 10,
       maxChatMessages: maxMessagesInput ? (parseInt(maxMessagesInput.value, 10) || 200) : 200
     };
     this.saveSettings(newSettings);

@@ -224,6 +224,15 @@
               <span class="input-unit">часов</span>
             </div>
           </section>
+          <!-- Raid Leader Highlight Duration Option -->
+          <section class="settings-group">
+            <h3>Подсветка лидера рейда (Twitch)</h3>
+            <p class="settings-hint">Длительность выделения сообщений стримера, запустившего рейд (в минутах):</p>
+            <div class="form-row form-row-inline">
+              <input type="number" id="raidLeaderDurationMinutes" min="1" max="180" value="10" style="width: 100px;">
+              <span class="input-unit">минут</span>
+            </div>
+          </section>
           <!-- Max Chat Messages Limit Option -->
           <section class="settings-group">
             <h3>Лимит сообщений в ленте</h3>
@@ -250,6 +259,7 @@
         'js/utils.js',
         'js/settings.js',
         'js/chatterTracker.js',
+        'js/raidTracker.js',
         'js/filter.js',
         'js/emotes.js',
         'js/connectors/twitch.js',

@@ -4,9 +4,10 @@
  */
 
 class TwitchConnector {
-  constructor(onMessageCallback, onStatusCallback) {
+  constructor(onMessageCallback, onStatusCallback, onRaidCallback = null) {
     this.onMessage = onMessageCallback;
     this.onStatus = onStatusCallback;
+    this.onRaid = onRaidCallback;
     this.ws = null;
     this.channel = '';
     this.reconnectTimer = null;
@@ -93,6 +94,40 @@ class TwitchConnector {
     }
   }
 
+  unescapeIrcTagValue(val) {
+    if (!val) return '';
+    return String(val)
+      .replace(/\\s/g, ' ')
+      .replace(/\\:/g, ';')
+      .replace(/\\\\/g, '\\')
+      .replace(/\\r/g, '\r')
+      .replace(/\\n/g, '\n');
+  }
+
+  extractIrcTags(line) {
+    const tags = {};
+    let lineWithoutTags = line;
+
+    if (line.startsWith('@')) {
+      const spaceIdx = line.indexOf(' ');
+      const tagsRaw = line.substring(1, spaceIdx);
+      lineWithoutTags = line.substring(spaceIdx + 1);
+
+      tagsRaw.split(';').forEach(tag => {
+        const eqIdx = tag.indexOf('=');
+        if (eqIdx === -1) {
+          tags[tag] = '';
+        } else {
+          const key = tag.substring(0, eqIdx);
+          const val = tag.substring(eqIdx + 1);
+          tags[key] = this.unescapeIrcTagValue(val);
+        }
+      });
+    }
+
+    return { tags, lineWithoutTags };
+  }
+
   handleIrcMessage(rawMessage) {
     const lines = rawMessage.split('\r\n');
     lines.forEach(line => {
@@ -104,33 +139,55 @@ class TwitchConnector {
         return;
       }
 
-      if (line.includes('PRIVMSG')) {
-        this.parsePrivMsg(line);
+      const { tags, lineWithoutTags } = this.extractIrcTags(line);
+
+      if (/\sPRIVMSG\s/.test(lineWithoutTags) || lineWithoutTags.startsWith('PRIVMSG')) {
+        this.parsePrivMsg(lineWithoutTags, tags);
+      } else if (/\sUSERNOTICE\s/.test(lineWithoutTags) || lineWithoutTags.startsWith('USERNOTICE')) {
+        this.parseUserNotice(lineWithoutTags, tags);
       }
     });
   }
 
-  parsePrivMsg(line) {
+  parseUserNotice(rawLine, parsedTags = null) {
     try {
-      let tags = {};
-      let lineToParse = line;
+      const tags = parsedTags || this.extractIrcTags(rawLine).tags;
+      const msgId = tags['msg-id'] || '';
 
-      // Extract IRC tags
-      if (line.startsWith('@')) {
-        const spaceIdx = line.indexOf(' ');
-        const tagsRaw = line.substring(1, spaceIdx);
-        lineToParse = line.substring(spaceIdx + 1);
+      if (msgId === 'raid') {
+        const leaderLogin = (tags['msg-param-login'] || tags['login'] || tags['display-name'] || '').toLowerCase().trim();
+        const leaderDisplayName = tags['msg-param-displayName'] || tags['display-name'] || leaderLogin;
+        const viewerCount = parseInt(tags['msg-param-viewerCount'], 10) || 0;
+        const systemMsg = tags['system-msg'] || '';
 
-        tagsRaw.split(';').forEach(tag => {
-          const eqIdx = tag.indexOf('=');
-          if (eqIdx === -1) {
-            tags[tag] = '';
-          } else {
-            const key = tag.substring(0, eqIdx);
-            const val = tag.substring(eqIdx + 1);
-            tags[key] = val;
-          }
-        });
+        console.log(`[Twitch Connector] Raid detected from ${leaderDisplayName} (${leaderLogin}) with ${viewerCount} viewers.`);
+
+        if (typeof this.onRaid === 'function') {
+          this.onRaid({
+            leaderLogin,
+            leaderDisplayName,
+            viewerCount,
+            systemMsg,
+            tags,
+            channel: this.channel,
+            timestamp: Date.now()
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[Twitch Connector] Error parsing USERNOTICE:', e);
+    }
+  }
+
+  parsePrivMsg(rawLine, parsedTags = null) {
+    try {
+      let tags = parsedTags;
+      let lineToParse = rawLine;
+
+      if (!tags) {
+        const extracted = this.extractIrcTags(rawLine);
+        tags = extracted.tags;
+        lineToParse = extracted.lineWithoutTags;
       }
 
       // Parse prefix and message content

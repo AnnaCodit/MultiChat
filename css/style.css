@@ -824,6 +824,28 @@ input:checked+.slider:before {
   background: linear-gradient(90deg, rgba(245, 158, 11, 0.16) 0%, rgba(245, 158, 11, 0.02) 100%);
 }
 
+/* Twitch Raid Leader Badges & Line Highlights */
+.badge-raid-leader {
+  background: rgba(168, 85, 247, 0.22);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+  box-shadow: 0 0 6px rgba(168, 85, 247, 0.25);
+}
+
+.chat-line-raid-leader {
+  border-left: 3px solid #a855f7;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.24) 0%, rgba(168, 85, 247, 0.03) 100%);
+}
+
 .chat-line-mention {
   border-left: 3px solid #ef4444;
   background: linear-gradient(90deg, rgba(239, 68, 68, 0.28) 0%, rgba(220, 38, 38, 0.12) 100%);

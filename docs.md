@@ -14,16 +14,18 @@
   - `twitch-user-popup.css` — Изолированные стили кликабельных Twitch-ников и popup профиля.
 - `js/utils.js` — Вспомогательный модуль `fetchWithCorsProxy` для обхода браузерных CORS-ограничений Kick, VK Видео Live и YouTube. Для заведомо заблокированных доменов сразу использует собственный `https://fra3a.ru/tools/proxy/`, затем публичные Corsproxy.io, AllOrigins и Codetabs как аварийный fallback.
 - `js/settings.js` — Менеджер настроек (сохранение каналов, никнеймов стримера, списка избранных пользователей `favoriteUsers`, списка игнорируемых пользователей/ботов `ignoredUsers`, ключевых слов для скрытия `blockedKeywords` и параметров в `localStorage`). Очищает префиксы `@`; поддерживает `hideTwitchBadges` для CSS-скрытия Twitch-бейджиков без удаления из DOM.
+- `js/chatterTracker.js` — Трекер первого сообщения пользователя за сессию/день и нативных первых сообщений Twitch.
+- `js/raidTracker.js` — Трекер лидеров рейдов Twitch (`RaidTracker`): регистрирует входящие рейды и сохраняет их лидеров в активном состоянии на 10 минут.
 - `js/filter.js` — Модуль фильтрации: определяет сообщения, подлежащие сворачиванию в спойлер `===` (ответы чаттеров друг другу, сообщения стримера с упоминанием конкретных зрителей/ответами им, сообщения от пользователей и ботов из `ignoredUsers`, а также сообщения с ключевыми словами/фразами из `blockedKeywords`). Любые сообщения, адресованные стримеру (`@упоминание` или прямой ответ), а также общие сообщения стримера без упоминаний других пользователей никогда не скрываются.
 - `js/emotes.js` — Парсер и загрузчик нативных Twitch/YouTube, 7TV, BTTV и FFZ смайликов, а также нативных Twitch GIF (`gifs` tag Tier 2/3) с безопасными HTTPS URL. Twitch emote ID поддерживают как числовой, так и современный формат `emotesv2_*`.
 - `js/connectors/`
-  - `twitch.js` — WebSocket IRC клиент Twitch (`wss://irc-ws.chat.twitch.tv:443`) с поддержкой IRC tags (включая `emotes`, `gifs`, `badges`, `color`, `reply-*`). Передаёт отдельно отображаемое имя `author` и канонический `login` из IRC-префикса.
+  - `twitch.js` — WebSocket IRC клиент Twitch (`wss://irc-ws.chat.twitch.tv:443`) с поддержкой IRC tags (включая `emotes`, `gifs`, `badges`, `color`, `reply-*`) и команды `USERNOTICE` (`msg-id=raid`). Передаёт отдельно отображаемое имя `author` и канонический `login` из IRC-префикса.
   - `kick.js` — WebSocket Pusher клиент Kick (`wss://ws-us2.pusher.com`) и опрос счётчика зрителей через REST API (`https://kick.com/api/v2/channels/{channel}`).
   - `vklive.js` — клиент VK Видео Live: сначала подключается к Centrifugo (`wss://pubsub.live.vkvideo.ru`), а при блокировке WebSocket Origin автоматически переходит на получение последних сообщений через HTTP и собственный CORS-прокси.
   - `youtube.js` — Поток live-чата YouTube по хэндлу, URL канала или Video ID. Получает initial data из публичной страницы, переключается с Top Chat на полный Live Chat и последовательно обходит GET continuation без API-ключа.
 - `js/twitchUserPopup.js` — Twitch-only popup по клику на ник: получает профиль через IVR API с timeout, показывает аватар и ссылки на канал/viewer card. Успешные профили кэшируются, а временные ошибки повторяются при следующем клике.
 - `js/app.js` — Главный оркестратор приложения, обработка входящих сообщений, рендеринг DOM и интеграция Twitch popup.
-- `tests/` — Node.js fixture-тесты YouTube initial/continuation payload, VK polling fallback, безопасного HTML-рендеринга, Twitch login/popup, UI-настроек и порядка подключения cache-busted ресурсов.
+- `tests/` — Node.js fixture-тесты YouTube initial/continuation payload, VK polling fallback, безопасного HTML-рендеринга, Twitch login/popup/USERNOTICE raid, RaidTracker, UI-настроек и порядка подключения cache-busted ресурсов.
 - `package.json` — Команда `npm test` для запуска тестов без дополнительных зависимостей.
 
 ## Инструкции для разработчиков
@@ -55,5 +57,6 @@
 - Сообщения пользователей или ботов из списка `ignoredUsers` (настраивается в модальном окне через запятую) сворачиваются под спойлер `===` (`.collapsed-reply`), если они не адресованы стримеру.
 - Сообщения, содержащие слова или фразы из списка `blockedKeywords` (настраивается в модальном окне через запятую), сворачиваются под спойлер `===` (`.collapsed-reply`), если они не адресованы стримеру.
 - Сообщения пользователей из списка `favoriteUsers` (настраивается в модальном окне через запятую) выделяются в чате золотисто-янтарной полосой `.chat-line-favorite` и бейджиком `⭐ Избранный`.
+- Сообщения лидера входящего рейда на Twitch выделяются яркой фиолетовой полосой `.chat-line-raid-leader` и бейджиком `⚔️ Лидер рейда` на заданное в настройках время (параметр `raidLeaderDurationMinutes`, по умолчанию 10 минут). События рейдов определяются автоматически через IRC `USERNOTICE` (`msg-id=raid`).
 - Плашка спойлера `===` (`.collapsed-reply`) является кликабельной и разворачивается для просмотра исходного текста.
 - Активного GitHub Actions workflow для Pages в репозитории сейчас нет: сохранён только `.github/workflows/deploy.yml.backup`. Публикация должна выполняться настройкой Pages из ветки `deploy` либо восстановленным workflow с расширением `.yml`.

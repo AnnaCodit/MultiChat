@@ -11,8 +11,15 @@ class MultiChatApp {
 
     this.isAutoScrollEnabled = true;
 
+    // Trackers
+    this.raidTracker = window.raidTracker;
+
     // Connectors
-    this.twitch = new TwitchConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
+    this.twitch = new TwitchConnector(
+      (msg) => this.handleIncomingMessage(msg),
+      (plat, active, desc) => this.updateStatus(plat, active, desc),
+      (raid) => this.handleRaidEvent(raid)
+    );
     this.kick = new KickConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc, viewerCount) => this.updateStatus(plat, active, desc, viewerCount));
     this.vk = new VkLiveConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
     this.youtube = new YoutubeConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
@@ -35,6 +42,12 @@ class MultiChatApp {
 
     // Auto-connect to saved channels on page load!
     this.initEmotesAndConnect();
+  }
+
+  handleRaidEvent(raid) {
+    if (this.raidTracker && typeof this.raidTracker.registerRaid === 'function') {
+      this.raidTracker.registerRaid(raid);
+    }
   }
 
   addDemoMessages() {
@@ -63,6 +76,24 @@ class MultiChatApp {
       color: '#00f5d4',
       tags: { 'first-msg': '1' },
       text: 'Всем привет! Я впервые зашёл на этот стрим, рад познакомиться! 👋'
+    });
+
+    // Demonstration Twitch message from recent Raid Leader
+    if (this.raidTracker && typeof this.raidTracker.registerRaid === 'function') {
+      this.raidTracker.registerRaid({
+        leaderLogin: 'RaidHero',
+        leaderDisplayName: 'RaidHero',
+        viewerCount: 120,
+        timestamp: Date.now()
+      });
+    }
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'RaidHero',
+      login: 'raidhero',
+      color: '#c084fc',
+      badges: 'broadcaster/1',
+      text: 'Привет всем от нашего канала! Ловите наш мощный рейд! ⚔️🔥'
     });
 
     // Demonstration VK Live message with Streamer Mention
@@ -305,6 +336,11 @@ class MultiChatApp {
     // Evaluate Channel Points reward redemption status
     const isReward = !!msg.isRewardRedemption || !!(msg.tags && msg.tags['custom-reward-id']);
 
+    // Evaluate raid leader highlight (active for 10m after raid)
+    const isRaidLeader = this.raidTracker && typeof this.raidTracker.isRaidLeader === 'function'
+      ? this.raidTracker.isRaidLeader(msg)
+      : false;
+
     // Evaluate first-time chatter status
     const firstStatus = window.chatterTracker ? window.chatterTracker.processMessage(msg) : { isFirstTimeEver: false, isFirstToday: false };
 
@@ -314,7 +350,7 @@ class MultiChatApp {
     const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag, msg.nativeEmotes, twitchGifsTag);
 
     // Render DOM node
-    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward, isFavorite);
+    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward, isFavorite, isRaidLeader);
   }
 
   markDeletedMessages(msg) {
@@ -334,7 +370,7 @@ class MultiChatApp {
     });
   }
 
-  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false, isFavorite = false) {
+  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false, isFavorite = false, isRaidLeader = false) {
     const lineEl = document.createElement('div');
     lineEl.className = 'chat-line';
     if (msg.id) lineEl.dataset.messageId = String(msg.id);
@@ -343,6 +379,8 @@ class MultiChatApp {
     // Apply special highlight classes
     if (isReward) {
       lineEl.classList.add('chat-line-reward');
+    } else if (isRaidLeader) {
+      lineEl.classList.add('chat-line-raid-leader');
     } else if (isMention) {
       lineEl.classList.add('chat-line-mention');
     } else if (isFavorite) {
@@ -361,6 +399,11 @@ class MultiChatApp {
 
     // Badges HTML (Parses ALL user badges: Twitch, Kick & YouTube)
     let badgesHTML = this.emotes.getBadgesHTML(msg);
+
+    // Append Raid Leader Badge if applicable
+    if (isRaidLeader) {
+      badgesHTML += `<span class="badge-raid-leader" title="Лидер рейда">⚔️ Лидер рейда</span>`;
+    }
 
     // Append Favorite User Badge if applicable
     if (isFavorite) {

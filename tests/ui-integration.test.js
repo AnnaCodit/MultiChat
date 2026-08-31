@@ -343,6 +343,122 @@ test('renderMessageNode renders chat-line-favorite and badge-favorite when isFav
   assert.match(fakeElement.innerHTML, /⭐ Избранный/);
 });
 
+test('renderMessageNode renders chat-line-raid-leader and badge-raid-leader when isRaidLeader is true', () => {
+  const fakeElement = {
+    className: '',
+    classList: {
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    dataset: {},
+    innerHTML: ''
+  };
+
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: () => fakeElement
+  };
+
+  const MultiChatAppWithDoc = loadMultiChatApp({ document: sandboxDocument });
+  const app = Object.create(MultiChatAppWithDoc.prototype);
+  app.chatMessagesEl = { appendChild() {} };
+  app.settings = { settings: { maxChatMessages: 200 } };
+  app.pruneExcessMessages = () => {};
+  app.escapeHTML = (s) => String(s || '');
+  app.normalizeColor = (c) => c;
+  app.renderAuthorHTML = (msg, escaped) => `<span class="msg-author">${escaped}</span>`;
+  app.emotes = { getBadgesHTML: () => '' };
+
+  app.renderMessageNode(
+    { author: 'RaidBoss', login: 'raidboss', text: 'Рейд пришел!', platform: 'twitch' },
+    'Рейд пришел!',
+    false,
+    {},
+    false,
+    false,
+    false,
+    true // isRaidLeader
+  );
+
+  assert.ok(fakeElement.classList.contains('chat-line-raid-leader'));
+  assert.match(fakeElement.innerHTML, /class="badge-raid-leader"/);
+  assert.match(fakeElement.innerHTML, /title="Лидер рейда"/);
+  assert.doesNotMatch(fakeElement.innerHTML, /активно/);
+  assert.match(fakeElement.innerHTML, /⚔️ Лидер рейда/);
+});
+
+test('index.html includes js/raidTracker.js in jsFiles loader before app.js', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /'js\/raidTracker\.js'/);
+});
+
+test('index.html contains #raidLeaderDurationMinutes input with default value 10 in settings modal', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /<input[^>]+id="raidLeaderDurationMinutes"[^>]+value="10"/);
+});
+
+test('SettingsManager: default raidLeaderDurationMinutes is 10 and parses correctly', () => {
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  assert.equal(manager.settings.raidLeaderDurationMinutes, 10);
+});
+
+test('style.css defines .chat-line-raid-leader and .badge-raid-leader', () => {
+  const css = fs.readFileSync(path.join(projectRoot, 'css/style.css'), 'utf8');
+  assert.match(css, /\.chat-line-raid-leader/);
+  assert.match(css, /\.badge-raid-leader/);
+});
+
+test('MultiChatApp: handleRaidEvent and handleIncomingMessage passes isRaidLeader to renderMessageNode', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+  let passedRaidLeaderStatus = null;
+
+  app.settings = {
+    getStreamerNicknames: () => [],
+    getFavoriteUsers: () => [],
+    getBlockedKeywords: () => [],
+    getIgnoredUsers: () => [],
+    settings: {}
+  };
+  app.filter = {
+    shouldCollapseReply: () => false,
+    isMentioningStreamer: () => false
+  };
+  app.emotes = {
+    parseEmotes: (text) => text
+  };
+  app.raidTracker = {
+    isRaidLeader: (msg) => msg && msg.login === 'epic_raider'
+  };
+  app.renderMessageNode = (_msg, _parsedText, _shouldCollapse, _firstStatus, _isMention, _isReward, _isFavorite, isRaidLeader) => {
+    passedRaidLeaderStatus = isRaidLeader;
+  };
+
+  app.handleIncomingMessage({
+    platform: 'twitch',
+    login: 'epic_raider',
+    author: 'Epic_Raider',
+    text: 'Привет от рейда!'
+  });
+
+  assert.equal(passedRaidLeaderStatus, true);
+});
+
+
 test('index.html contains #ignoredUsers input in settings modal', () => {
   const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
   assert.match(html, /<input[^>]+id="ignoredUsers"/);

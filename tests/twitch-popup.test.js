@@ -84,6 +84,36 @@ test('Twitch connector extracts native gifs tag from PRIVMSG', () => {
   assert.equal(messages[0].tags.gifs, `0-33|joSNxeswxuc74Juo8X|${fullGifUrl}`);
 });
 
+test('Twitch connector parses USERNOTICE raid event and calls onRaid callback', () => {
+  const TwitchConnector = loadTwitchConnector();
+  const raids = [];
+  const connector = new TwitchConnector(() => {}, () => {}, raid => raids.push(raid));
+
+  const rawNotice = '@badge-info=;badges=;color=#8A2BE2;display-name=RaidLeader;emotes=;id=123;login=raidleader;msg-id=raid;msg-param-displayName=RaidLeader;msg-param-login=raidleader;msg-param-viewerCount=42;room-id=456;system-msg=42\\sraiders\\sfrom\\sRaidLeader\\shave\\sjoined! :tmi.twitch.tv USERNOTICE #fra3a';
+  connector.handleIrcMessage(rawNotice);
+
+  assert.equal(raids.length, 1);
+  assert.equal(raids[0].leaderLogin, 'raidleader');
+  assert.equal(raids[0].leaderDisplayName, 'RaidLeader');
+  assert.equal(raids[0].viewerCount, 42);
+  assert.equal(raids[0].systemMsg, '42 raiders from RaidLeader have joined!');
+});
+
+test('Twitch connector dispatches USERNOTICE raid correctly even if tags contain PRIVMSG substring', () => {
+  const TwitchConnector = loadTwitchConnector();
+  const raids = [];
+  const connector = new TwitchConnector(() => {}, () => {}, raid => raids.push(raid));
+
+  const rawNotice = '@display-name=PRIVMSG_King;login=privmsg_king;msg-id=raid;msg-param-displayName=PRIVMSG_King;msg-param-login=privmsg_king;msg-param-viewerCount=10 :tmi.twitch.tv USERNOTICE #fra3a';
+  connector.handleIrcMessage(rawNotice);
+
+  assert.equal(raids.length, 1);
+  assert.equal(raids[0].leaderLogin, 'privmsg_king');
+  assert.equal(raids[0].viewerCount, 10);
+});
+
+
+
 test('popup builds channel and viewer card URLs from canonical login', () => {
   const { TwitchUserPopup } = loadTwitchPopup(async () => ({ ok: true, json: async () => [] }));
   const popup = Object.create(TwitchUserPopup.prototype);
