@@ -32,6 +32,7 @@ const ALLOWED_HOST_SUFFIXES = [
     'frankerfacez.com',
     'ivr.fi',
     'decapi.me',
+    'twitchtracker.com',
 ];
 
 // Kick may block requests from hosting-provider IP ranges. These stable chatroom IDs

@@ -74,3 +74,9 @@ test('an aborted request does not continue through public fallbacks', async () =
   assert.equal(calls.length, 1);
   assert.match(calls[0], /^https:\/\/fra3a\.ru\/tools\/proxy\//);
 });
+
+test('proxy/index.php allows twitchtracker.com host suffix', () => {
+  const phpContent = fs.readFileSync(path.join(projectRoot, 'proxy/index.php'), 'utf8');
+  assert.match(phpContent, /'twitchtracker\.com'/);
+});
+

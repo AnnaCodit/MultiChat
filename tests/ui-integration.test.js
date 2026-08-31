@@ -556,3 +556,245 @@ test('style.css defines .channel-row flex layout and custom scrollbar for .modal
   assert.match(css, /\.modal-body::-webkit-scrollbar\s*\{[^}]*width:\s*6px/);
   assert.match(css, /\.modal-body::-webkit-scrollbar-thumb\s*\{/);
 });
+
+test('SettingsManager: defaults include highlightStreamers = true and streamerMinViewers = 20', () => {
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  assert.equal(manager.settings.highlightStreamers, true);
+  assert.equal(manager.settings.streamerMinViewers, 20);
+});
+
+test('SettingsManager: populateForm and readForm handle highlightStreamers and streamerMinViewers', () => {
+  const elements = {
+    twitchChannel: { value: 'mychan' },
+    kickChannel: { value: '' },
+    vkChannel: { value: '' },
+    youtubeChannel: { value: '' },
+    extraNicknames: { value: '' },
+    favoriteUsers: { value: '' },
+    blockedKeywords: { value: '' },
+    ignoredUsers: { value: '' },
+    hideChatterReplies: { checked: true },
+    enableThirdPartyEmotes: { checked: true },
+    hideTwitchBadges: { checked: false },
+    highlightStreamers: { checked: true },
+    streamerMinViewers: { value: '50' },
+    fontSizeRange: { value: '16' },
+    fontSizeVal: { textContent: '16px' },
+    firstMessageWindowHours: { value: '12' },
+    raidLeaderDurationMinutes: { value: '10' },
+    maxChatMessages: { value: '200' }
+  };
+
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    document: {
+      getElementById: (id) => elements[id] || null
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  manager.settings.highlightStreamers = false;
+  manager.settings.streamerMinViewers = 35;
+  manager.populateForm();
+
+  assert.equal(elements.highlightStreamers.checked, false);
+  assert.equal(elements.streamerMinViewers.value, 35);
+
+  elements.highlightStreamers.checked = true;
+  elements.streamerMinViewers.value = '100';
+  const updated = manager.readForm();
+
+  assert.equal(updated.highlightStreamers, true);
+  assert.equal(updated.streamerMinViewers, 100);
+});
+
+test('index.html contains #highlightStreamers and #streamerMinViewers inputs in settings modal', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /<input[^>]+id="highlightStreamers"/);
+  assert.match(html, /<input[^>]+id="streamerMinViewers"/);
+});
+
+test('index.html includes js/streamerTracker.js in jsFiles loader before app.js', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  const jsLoader = html.indexOf('const jsFiles');
+  const trackerIndex = html.indexOf("'js/streamerTracker.js'");
+  const appIndex = html.indexOf("'js/app.js'");
+
+  assert.ok(trackerIndex > jsLoader, 'streamerTracker.js should be in jsFiles');
+  assert.ok(trackerIndex < appIndex, 'streamerTracker.js must be loaded before app.js');
+});
+
+test('style.css defines .chat-line-streamer and .badge-streamer', () => {
+  const css = fs.readFileSync(path.join(projectRoot, 'css/style.css'), 'utf8');
+  assert.match(css, /\.chat-line-streamer/);
+  assert.match(css, /\.badge-streamer/);
+});
+
+test('MultiChatApp: handleIncomingMessage identifies cached streamer and passes isStreamer to renderMessageNode', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+  let capturedArgs = null;
+
+  app.settings = {
+    getStreamerNicknames: () => [],
+    getFavoriteUsers: () => [],
+    getBlockedKeywords: () => [],
+    getIgnoredUsers: () => [],
+    settings: { highlightStreamers: true, streamerMinViewers: 50 }
+  };
+  app.filter = {
+    shouldCollapseReply: () => false,
+    isMentioningStreamer: () => false
+  };
+  app.emotes = { parseEmotes: (t) => t };
+  app.streamerTracker = {
+    getStreamerStats: (login) => login === 'popular_streamer' ? { avgViewers: 120, isStreamer: true } : null,
+    queueCheck: () => {}
+  };
+  app.renderMessageNode = (...args) => {
+    capturedArgs = args;
+  };
+
+  app.handleIncomingMessage({
+    platform: 'twitch',
+    login: 'popular_streamer',
+    author: 'Popular_Streamer',
+    text: 'Привет чат!'
+  });
+
+  assert.ok(capturedArgs);
+  // isStreamer is passed as arg 8, streamerAvgViewers as arg 9
+  assert.equal(capturedArgs[8], true);
+  assert.equal(capturedArgs[9], 120);
+});
+
+test('MultiChatApp: renderMessageNode renders chat-line-streamer and badge-streamer when isStreamer is true', () => {
+  const fakeElement = {
+    className: '',
+    classList: {
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    dataset: {},
+    innerHTML: ''
+  };
+
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: () => fakeElement
+  };
+
+  const MultiChatAppWithDoc = loadMultiChatApp({ document: sandboxDocument });
+  const app = Object.create(MultiChatAppWithDoc.prototype);
+  app.chatMessagesEl = { appendChild() {} };
+  app.settings = { settings: { maxChatMessages: 200 } };
+  app.pruneExcessMessages = () => {};
+  app.escapeHTML = (s) => String(s || '');
+  app.normalizeColor = (c) => c;
+  app.renderAuthorHTML = (msg, escapedAuthor, style) => `<span class="msg-author twitch-author" data-twitch-username="${msg.login}">${escapedAuthor}</span>`;
+  app.emotes = {
+    getBadgesHTML: () => ''
+  };
+
+  const msg = {
+    platform: 'twitch',
+    author: 'FamousStreamer',
+    login: 'famousstreamer',
+    text: 'Привет!'
+  };
+
+  const node = app.renderMessageNode(
+    msg,
+    'Привет!',
+    false, // shouldCollapse
+    {}, // firstStatus
+    false, // isMention
+    false, // isReward
+    false, // isFavorite
+    false, // isRaidLeader
+    true, // isStreamer
+    150 // streamerAvgViewers
+  );
+
+  assert.ok(node.classList.contains('chat-line-streamer'));
+  assert.match(node.innerHTML, /class="badge-streamer"/);
+  assert.match(node.innerHTML, /150/);
+});
+
+test('MultiChatApp: handleStreamerDetected dynamically updates matching DOM nodes with streamer badge and class', () => {
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: (tag) => ({
+      tagName: tag,
+      className: '',
+      title: '',
+      textContent: ''
+    })
+  };
+
+  const MultiChatApp = loadMultiChatApp({ document: sandboxDocument });
+  const app = Object.create(MultiChatApp.prototype);
+  app.normalizeTwitchLogin = (login) => String(login || '').trim().toLowerCase().replace(/^[@#]+/, '');
+  app.settings = {
+    settings: { highlightStreamers: true, streamerMinViewers: 20 }
+  };
+
+  // Mock DOM structure
+  const lineEl = {
+    classList: {
+      classes: new Set(['chat-line']),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    querySelector: (selector) => null
+  };
+
+  const authorEl = {
+    closest: (sel) => sel === '.chat-line' ? lineEl : null,
+    parentNode: {
+      insertBefore: (newEl, refEl) => {
+        lineEl.insertedBadge = newEl;
+      }
+    }
+  };
+
+  app.chatMessagesEl = {
+    querySelectorAll: (sel) => {
+      if (sel.includes('superstar')) return [authorEl];
+      return [];
+    }
+  };
+
+  app.handleStreamerDetected('SuperStar', 75);
+
+  assert.ok(lineEl.classList.contains('chat-line-streamer'));
+  assert.ok(lineEl.insertedBadge);
+  assert.equal(lineEl.insertedBadge.className, 'badge-streamer');
+  assert.match(lineEl.insertedBadge.textContent, /75/);
+});
+
+
+

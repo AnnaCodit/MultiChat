@@ -224,6 +224,25 @@
               <span class="input-unit">часов</span>
             </div>
           </section>
+          <!-- Twitch Streamer Highlight Option -->
+          <section class="settings-group">
+            <h3>Выделение стримеров (Twitch)</h3>
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <span class="toggle-title">Выделять сообщения зрителей-стримеров</span>
+                <span class="toggle-sub">Проверяет средний онлайн стримера через TwitchTracker API</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="highlightStreamers" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <p class="settings-hint" style="margin-top: 8px;">Минимальный средний онлайн (X) для выделения:</p>
+            <div class="form-row form-row-inline">
+              <input type="number" id="streamerMinViewers" min="1" max="100000" value="20" style="width: 100px;">
+              <span class="input-unit">зрителей</span>
+            </div>
+          </section>
           <!-- Raid Leader Highlight Duration Option -->
           <section class="settings-group">
             <h3>Подсветка лидера рейда (Twitch)</h3>
@@ -260,6 +279,7 @@
         'js/settings.js',
         'js/chatterTracker.js',
         'js/raidTracker.js',
+        'js/streamerTracker.js',
         'js/filter.js',
         'js/emotes.js',
         'js/connectors/twitch.js',

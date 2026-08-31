@@ -13,6 +13,12 @@ class MultiChatApp {
 
     // Trackers
     this.raidTracker = window.raidTracker;
+    this.streamerTracker = window.streamerTracker || (typeof StreamerTracker !== 'undefined' ? new StreamerTracker() : null);
+    if (this.streamerTracker && typeof this.streamerTracker.onStreamerDetected === 'function') {
+      this.streamerTracker.onStreamerDetected((login, avgViewers) => {
+        this.handleStreamerDetected(login, avgViewers);
+      });
+    }
 
     // Connectors
     this.twitch = new TwitchConnector(
@@ -50,6 +56,34 @@ class MultiChatApp {
     }
   }
 
+  handleStreamerDetected(login, avgViewers) {
+    if (!this.chatMessagesEl || !login) return;
+    const highlightStreamersEnabled = this.settings?.settings?.highlightStreamers !== false;
+    const streamerMinViewers = typeof this.settings?.settings?.streamerMinViewers === 'number'
+      ? this.settings.settings.streamerMinViewers
+      : 20;
+
+    if (!highlightStreamersEnabled || avgViewers < streamerMinViewers) return;
+
+    const normalizedLogin = this.normalizeTwitchLogin(login);
+    const authorEls = this.chatMessagesEl.querySelectorAll(`.msg-author[data-twitch-username="${normalizedLogin}"]`);
+    authorEls.forEach((authorEl) => {
+      const lineEl = authorEl.closest('.chat-line');
+      if (!lineEl) return;
+      lineEl.classList.add('chat-line-streamer');
+
+      if (!lineEl.querySelector('.badge-streamer')) {
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'badge-streamer';
+        badgeEl.textContent = `📺 ${avgViewers}`;
+
+        if (authorEl.parentNode) {
+          authorEl.parentNode.insertBefore(badgeEl, authorEl);
+        }
+      }
+    });
+  }
+
   addDemoMessages() {
     // Demonstration Twitch message with 3 badges (Broadcaster + Subscriber + Partner)
     this.handleIncomingMessage({
@@ -58,6 +92,22 @@ class MultiChatApp {
       color: '#9146FF',
       badges: 'broadcaster/1,subscriber/1,partner/1',
       text: 'Привет! Чат подключен и готов к работе 🚀'
+    });
+
+    // Demonstration Twitch message from another streamer with high average online
+    if (this.streamerTracker && this.streamerTracker.cache && typeof this.streamerTracker.cache.set === 'function') {
+      this.streamerTracker.cache.set('streamerguest', {
+        avgViewers: 145,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+    }
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'StreamerGuest',
+      login: 'streamerguest',
+      color: '#38bdf8',
+      badges: 'broadcaster/1',
+      text: 'Всем привет, отличного стрима! Заглянул пожелать удачи 👋'
     });
 
     // Demonstration Kick message with Kick Broadcaster badge (First message today)
@@ -341,6 +391,29 @@ class MultiChatApp {
       ? this.raidTracker.isRaidLeader(msg)
       : false;
 
+    // Evaluate Twitch streamer highlight status
+    let isStreamer = false;
+    let streamerAvgViewers = 0;
+    const highlightStreamersEnabled = this.settings?.settings?.highlightStreamers !== false;
+    const streamerMinViewers = typeof this.settings?.settings?.streamerMinViewers === 'number'
+      ? this.settings.settings.streamerMinViewers
+      : 20;
+
+    if (msg.platform === 'twitch' && highlightStreamersEnabled && this.streamerTracker) {
+      const twitchLogin = this.normalizeTwitchLogin(msg.login || msg.author);
+      if (twitchLogin) {
+        const stats = this.streamerTracker.getStreamerStats(twitchLogin);
+        if (stats) {
+          if (stats.avgViewers >= streamerMinViewers) {
+            isStreamer = true;
+            streamerAvgViewers = stats.avgViewers;
+          }
+        } else {
+          this.streamerTracker.queueCheck(twitchLogin);
+        }
+      }
+    }
+
     // Evaluate first-time chatter status
     const firstStatus = window.chatterTracker ? window.chatterTracker.processMessage(msg) : { isFirstTimeEver: false, isFirstToday: false };
 
@@ -350,7 +423,7 @@ class MultiChatApp {
     const parsedTextHTML = this.emotes.parseEmotes(msg.text, twitchEmotesTag, msg.nativeEmotes, twitchGifsTag);
 
     // Render DOM node
-    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward, isFavorite, isRaidLeader);
+    this.renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus, isMention, isReward, isFavorite, isRaidLeader, isStreamer, streamerAvgViewers);
   }
 
   markDeletedMessages(msg) {
@@ -370,7 +443,7 @@ class MultiChatApp {
     });
   }
 
-  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false, isFavorite = false, isRaidLeader = false) {
+  renderMessageNode(msg, parsedTextHTML, shouldCollapse, firstStatus = {}, isMention = false, isReward = false, isFavorite = false, isRaidLeader = false, isStreamer = false, streamerAvgViewers = 0) {
     const lineEl = document.createElement('div');
     lineEl.className = 'chat-line';
     if (msg.id) lineEl.dataset.messageId = String(msg.id);
@@ -381,6 +454,8 @@ class MultiChatApp {
       lineEl.classList.add('chat-line-reward');
     } else if (isRaidLeader) {
       lineEl.classList.add('chat-line-raid-leader');
+    } else if (isStreamer) {
+      lineEl.classList.add('chat-line-streamer');
     } else if (isMention) {
       lineEl.classList.add('chat-line-mention');
     } else if (isFavorite) {
@@ -403,6 +478,11 @@ class MultiChatApp {
     // Append Raid Leader Badge if applicable
     if (isRaidLeader) {
       badgesHTML += `<span class="badge-raid-leader" title="Лидер рейда">⚔️ Лидер рейда</span>`;
+    }
+
+    // Append Streamer Badge if applicable
+    if (isStreamer) {
+      badgesHTML += `<span class="badge-streamer">📺 ${streamerAvgViewers}</span>`;
     }
 
     // Append Favorite User Badge if applicable
@@ -456,7 +536,9 @@ class MultiChatApp {
       lineEl.innerHTML = `<span class="msg-header"><span class="msg-platform ${platformClass}">${platformLabel}</span>${badgesHTML}${authorHTML}<span class="msg-colon">:</span></span><span class="msg-text">${parsedTextHTML}</span>`;
     }
 
-    this.chatMessagesEl.appendChild(lineEl);
+    if (this.chatMessagesEl) {
+      this.chatMessagesEl.appendChild(lineEl);
+    }
 
     // Limit DOM messages count based on maxChatMessages configuration
     this.pruneExcessMessages();
@@ -467,6 +549,8 @@ class MultiChatApp {
     } else {
       this.updateUnreadBadge();
     }
+
+    return lineEl;
   }
 
   pruneExcessMessages() {

@@ -846,6 +846,28 @@ input:checked+.slider:before {
   background: linear-gradient(90deg, rgba(168, 85, 247, 0.24) 0%, rgba(168, 85, 247, 0.03) 100%);
 }
 
+/* Twitch Active Streamer Badges & Line Highlights */
+.badge-streamer {
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+  box-shadow: 0 0 6px rgba(14, 165, 233, 0.25);
+}
+
+.chat-line-streamer {
+  border-left: 3px solid #0284c7;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.22) 0%, rgba(14, 165, 233, 0.03) 100%);
+}
+
 .chat-line-mention {
   border-left: 3px solid #ef4444;
   background: linear-gradient(90deg, rgba(239, 68, 68, 0.28) 0%, rgba(220, 38, 38, 0.12) 100%);

@@ -17,6 +17,8 @@ const defaultSettings = {
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
   hideTwitchBadges: false,
+  highlightStreamers: true,
+  streamerMinViewers: 20,
   fontSize: 16,
   firstMessageWindowHours: 12,
   raidLeaderDurationMinutes: 10,
@@ -184,6 +186,16 @@ class SettingsManager {
     document.getElementById('enableThirdPartyEmotes').checked = !!this.settings.enableThirdPartyEmotes;
     document.getElementById('hideTwitchBadges').checked = !!this.settings.hideTwitchBadges;
     
+    const highlightStreamersInput = document.getElementById('highlightStreamers');
+    if (highlightStreamersInput) {
+      highlightStreamersInput.checked = this.settings.highlightStreamers !== false;
+    }
+
+    const streamerMinViewersInput = document.getElementById('streamerMinViewers');
+    if (streamerMinViewersInput) {
+      streamerMinViewersInput.value = typeof this.settings.streamerMinViewers === 'number' ? this.settings.streamerMinViewers : 20;
+    }
+
     document.getElementById('fontSizeRange').value = this.settings.fontSize || 16;
     document.getElementById('fontSizeVal').textContent = (this.settings.fontSize || 16) + 'px';
 
@@ -213,6 +225,8 @@ class SettingsManager {
     const blockedKeywordsInput = document.getElementById('blockedKeywords');
     const ignoredUsersInput = document.getElementById('ignoredUsers');
     const favoriteUsersInput = document.getElementById('favoriteUsers');
+    const highlightStreamersInput = document.getElementById('highlightStreamers');
+    const streamerMinViewersInput = document.getElementById('streamerMinViewers');
 
     const newSettings = {
       twitchChannel: document.getElementById('twitchChannel').value.trim(),
@@ -226,6 +240,8 @@ class SettingsManager {
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
       hideTwitchBadges: document.getElementById('hideTwitchBadges').checked,
+      highlightStreamers: highlightStreamersInput ? highlightStreamersInput.checked : (this.settings.highlightStreamers !== false),
+      streamerMinViewers: streamerMinViewersInput ? (parseInt(streamerMinViewersInput.value, 10) || 20) : (this.settings.streamerMinViewers || 20),
       fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16,
       firstMessageWindowHours: windowInput ? (parseInt(windowInput.value, 10) || 12) : 12,
       raidLeaderDurationMinutes: raidLeaderInput ? (parseInt(raidLeaderInput.value, 10) || 10) : 10,
