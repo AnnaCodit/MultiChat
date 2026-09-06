@@ -282,3 +282,11 @@ test('MessageFilter: does not collapse message when author is not in ignoredUser
   };
   assert.equal(filter.shouldCollapseReply(msg, streamerNicknames, true, [], ignoredUsers), false);
 });
+
+test('MessageFilter: isAuthorStreamer matches author or login with leading @', () => {
+  const filter = loadMessageFilter();
+  assert.equal(filter.isAuthorStreamer({ author: '@fra3a' }, streamerNicknames), true);
+  assert.equal(filter.isAuthorStreamer({ author: '@@annacodit' }, streamerNicknames), true);
+  assert.equal(filter.isAuthorStreamer({ author: 'unknown', login: '@fra3atv' }, streamerNicknames), true);
+  assert.equal(filter.isAuthorStreamer({ author: '@regular_viewer' }, streamerNicknames), false);
+});

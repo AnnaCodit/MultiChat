@@ -381,7 +381,7 @@ class YoutubeConnector {
 
     const [rendererName, messageType] = definition;
     const renderer = item[rendererName];
-    const author = this.extractText(renderer.authorName) || 'YTUser';
+    const author = this.cleanAuthorName(this.extractText(renderer.authorName));
     const messageParts = this.extractRuns(renderer.message);
     let text = messageParts.text;
 
@@ -458,6 +458,12 @@ class YoutubeConnector {
 
   extractText(textObject) {
     return this.extractRuns(textObject).text;
+  }
+
+  cleanAuthorName(authorName) {
+    const raw = typeof authorName === 'string' ? authorName.trim() : '';
+    const cleaned = raw.replace(/^@+/, '').trim();
+    return cleaned || 'YTUser';
   }
 
   extractAuthorBadges(authorBadges) {

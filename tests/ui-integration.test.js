@@ -223,6 +223,40 @@ test('renderMessageNode renders collapsed-reply with === placeholder when should
   assert.match(fakeElement.innerHTML, /collapsed-content/);
 });
 
+test('renderMessageNode strips leading @ from author display', () => {
+  const fakeElement = {
+    className: '',
+    classList: {
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    dataset: {},
+    innerHTML: ''
+  };
+
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: () => fakeElement
+  };
+
+  const MultiChatAppWithDoc = loadMultiChatApp({ document: sandboxDocument });
+  const app = Object.create(MultiChatAppWithDoc.prototype);
+  app.chatMessagesEl = { appendChild() {} };
+  app.settings = { settings: { maxChatMessages: 200 } };
+  app.pruneExcessMessages = () => {};
+  app.escapeHTML = (s) => String(s || '');
+  app.normalizeColor = (c) => c;
+  app.renderAuthorHTML = MultiChatAppWithDoc.prototype.renderAuthorHTML;
+  app.emotes = { getBadgesHTML: () => '' };
+
+  app.renderMessageNode({ author: '@yt_viewer', text: 'привет', platform: 'youtube' }, 'привет', false);
+
+  assert.match(fakeElement.innerHTML, /<span class="msg-author">yt_viewer<\/span>/);
+  assert.doesNotMatch(fakeElement.innerHTML, /@yt_viewer/);
+});
+
 test('index.html contains #blockedKeywords input in settings modal', () => {
   const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
   assert.match(html, /<input[^>]+id="blockedKeywords"/);

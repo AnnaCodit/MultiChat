@@ -95,6 +95,21 @@ test('initial live chat data parses text, paid events, memberships, stickers and
   assert.equal(messages[3].text, '100 ₽');
 });
 
+test('YouTube author names strip leading @ handle prefix', () => {
+  const { connector, messages } = createConnector();
+  connector.parseYtLiveChatData(initialFixture);
+
+  assert.equal(messages[0].author, 'viewer');
+  assert.equal(messages[1].author, 'supporter');
+  assert.equal(messages[2].author, 'member');
+  assert.equal(messages[3].author, 'sticker');
+  assert.equal(connector.cleanAuthorName('@user_handle'), 'user_handle');
+  assert.equal(connector.cleanAuthorName('plain_nick'), 'plain_nick');
+  assert.equal(connector.cleanAuthorName('@@nested_at'), 'nested_at');
+  assert.equal(connector.cleanAuthorName('@'), 'YTUser');
+  assert.equal(connector.cleanAuthorName(''), 'YTUser');
+});
+
 test('continuation data is deduplicated and accepts replaceChatItemAction', () => {
   const { connector, messages } = createConnector();
   connector.parseYtLiveChatData(initialFixture);

@@ -12,8 +12,8 @@ class MessageFilter {
    */
   isAuthorStreamer(msg, streamerNicknames = []) {
     if (!msg) return false;
-    const authorClean = (msg.author || '').toLowerCase().trim();
-    const loginClean = (msg.login || '').toLowerCase().trim();
+    const authorClean = (msg.author || '').toLowerCase().trim().replace(/^@+/, '');
+    const loginClean = (msg.login || '').toLowerCase().trim().replace(/^@+/, '');
 
     if (authorClean && streamerNicknames.includes(authorClean)) return true;
     if (loginClean && streamerNicknames.includes(loginClean)) return true;
@@ -141,7 +141,7 @@ class MessageFilter {
     // 1. Messages sent by the streamer/channel owner
     if (isStreamer) {
       // If replying directly via platform reply metadata
-      const replyTargetClean = (msg.replyTo || '').toLowerCase().trim();
+      const replyTargetClean = (msg.replyTo || '').toLowerCase().trim().replace(/^@+/, '');
       if (replyTargetClean && !streamerNicknames.includes(replyTargetClean)) {
         return true; // Streamer replied to a chatter -> COLLAPSE
       }
@@ -162,7 +162,7 @@ class MessageFilter {
     }
 
     // 3. Regular chatter message: check explicit platform reply metadata (e.g. Twitch reply-parent-user-login)
-    const chatterReplyTarget = (msg.replyTo || '').toLowerCase().trim();
+    const chatterReplyTarget = (msg.replyTo || '').toLowerCase().trim().replace(/^@+/, '');
     if (chatterReplyTarget) {
       // If replying directly to streamer -> DO NOT HIDE
       if (streamerNicknames.includes(chatterReplyTarget)) {

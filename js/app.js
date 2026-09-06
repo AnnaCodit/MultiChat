@@ -470,7 +470,8 @@ class MultiChatApp {
 
     const platformClass = msg.platform || 'twitch';
     const platformLabel = platformClass.charAt(0).toUpperCase();
-    const escapedAuthor = this.escapeHTML(msg.author);
+    const cleanAuthor = typeof msg.author === 'string' ? msg.author.trim().replace(/^@+/, '').trim() : (msg.author || '');
+    const escapedAuthor = this.escapeHTML(cleanAuthor || 'User');
 
     // Badges HTML (Parses ALL user badges: Twitch, Kick & YouTube)
     let badgesHTML = this.emotes.getBadgesHTML(msg);

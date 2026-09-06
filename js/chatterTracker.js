@@ -69,7 +69,8 @@ class ChatterTracker {
     }
 
     const platformCode = PLATFORM_PREFIXES[msg.platform] || msg.platform || 'tw';
-    const key = `${platformCode}:${msg.author.toLowerCase().trim()}`;
+    const cleanAuthor = (msg.author || '').trim().replace(/^@+/, '').toLowerCase();
+    const key = `${platformCode}:${cleanAuthor}`;
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSec = this.getWindowSeconds();
 
