@@ -387,6 +387,20 @@ body.dark-theme {
   vertical-align: baseline;
 }
 
+.msg-author.twitch-author {
+  transition: color 0.2s ease, text-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.msg-author.seventv-painted {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent !important;
+  display: inline-block;
+  vertical-align: baseline;
+  font-weight: 700;
+}
+
 .msg-colon {
   color: var(--text-muted);
   vertical-align: baseline;

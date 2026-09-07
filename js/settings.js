@@ -17,6 +17,7 @@ const defaultSettings = {
   hideChatterReplies: true,
   enableThirdPartyEmotes: true,
   hideTwitchBadges: false,
+  enableSevenTvColors: true,
   highlightStreamers: true,
   streamerMinViewers: 20,
   fontSize: 16,
@@ -186,6 +187,11 @@ class SettingsManager {
     document.getElementById('enableThirdPartyEmotes').checked = !!this.settings.enableThirdPartyEmotes;
     document.getElementById('hideTwitchBadges').checked = !!this.settings.hideTwitchBadges;
     
+    const enableSevenTvColorsInput = document.getElementById('enableSevenTvColors');
+    if (enableSevenTvColorsInput) {
+      enableSevenTvColorsInput.checked = this.settings.enableSevenTvColors !== false;
+    }
+
     const highlightStreamersInput = document.getElementById('highlightStreamers');
     if (highlightStreamersInput) {
       highlightStreamersInput.checked = this.settings.highlightStreamers !== false;
@@ -225,6 +231,7 @@ class SettingsManager {
     const blockedKeywordsInput = document.getElementById('blockedKeywords');
     const ignoredUsersInput = document.getElementById('ignoredUsers');
     const favoriteUsersInput = document.getElementById('favoriteUsers');
+    const enableSevenTvColorsInput = document.getElementById('enableSevenTvColors');
     const highlightStreamersInput = document.getElementById('highlightStreamers');
     const streamerMinViewersInput = document.getElementById('streamerMinViewers');
 
@@ -240,6 +247,7 @@ class SettingsManager {
       hideChatterReplies: document.getElementById('hideChatterReplies').checked,
       enableThirdPartyEmotes: document.getElementById('enableThirdPartyEmotes').checked,
       hideTwitchBadges: document.getElementById('hideTwitchBadges').checked,
+      enableSevenTvColors: enableSevenTvColorsInput ? enableSevenTvColorsInput.checked : (this.settings.enableSevenTvColors !== false),
       highlightStreamers: highlightStreamersInput ? highlightStreamersInput.checked : (this.settings.highlightStreamers !== false),
       streamerMinViewers: streamerMinViewersInput ? (parseInt(streamerMinViewersInput.value, 10) || 20) : (this.settings.streamerMinViewers || 20),
       fontSize: parseInt(document.getElementById('fontSizeRange').value, 10) || 16,

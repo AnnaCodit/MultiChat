@@ -206,6 +206,9 @@ class TwitchConnector {
       // Extract reply metadata from Twitch tags
       const replyTo = tags['reply-parent-user-login'] || null;
 
+      // Extract user ID from Twitch tags
+      const userId = tags['user-id'] || null;
+
       // Extract nickname color & user badges from Twitch IRC tags
       const userColor = tags['color'] || null;
       const userBadges = tags['badges'] || null;
@@ -220,6 +223,7 @@ class TwitchConnector {
         platform: 'twitch',
         login,
         author,
+        userId,
         text: content,
         color: userColor,
         badges: userBadges,
@@ -232,4 +236,8 @@ class TwitchConnector {
       console.error('[Twitch Connector] Error parsing PRIVMSG:', e);
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = TwitchConnector;
 }

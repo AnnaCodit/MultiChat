@@ -830,5 +830,227 @@ test('MultiChatApp: handleStreamerDetected dynamically updates matching DOM node
   assert.match(lineEl.insertedBadge.textContent, /75/);
 });
 
+test('Twitch connector parsePrivMsg extracts userId tag', () => {
+  const TwitchConnector = require('../js/connectors/twitch');
+  let capturedMsg = null;
+  const connector = new TwitchConnector((msg) => { capturedMsg = msg; });
+
+  const rawLine = '@badge-info=;badges=broadcaster/1;color=#00FF7F;display-name=Streamer;emotes=;user-id=998877 :streamer!streamer@streamer.tmi.twitch.tv PRIVMSG #streamer :Hello 7TV!';
+  connector.parsePrivMsg(rawLine);
+
+  assert.ok(capturedMsg);
+  assert.equal(capturedMsg.userId, '998877');
+  assert.equal(capturedMsg.author, 'Streamer');
+  assert.equal(capturedMsg.text, 'Hello 7TV!');
+});
+
+test('SettingsManager: defaults include enableSevenTvColors = true and handles form reading', () => {
+  const elements = {
+    twitchChannel: { value: '' },
+    kickChannel: { value: '' },
+    vkChannel: { value: '' },
+    youtubeChannel: { value: '' },
+    extraNicknames: { value: '' },
+    blockedKeywords: { value: '' },
+    ignoredUsers: { value: '' },
+    favoriteUsers: { value: '' },
+    hideChatterReplies: { checked: true },
+    enableThirdPartyEmotes: { checked: true },
+    hideTwitchBadges: { checked: false },
+    enableSevenTvColors: { checked: true },
+    highlightStreamers: { checked: true },
+    streamerMinViewers: { value: '20' },
+    fontSizeRange: { value: '16' },
+    fontSizeVal: { textContent: '16px' },
+    firstMessageWindowHours: { value: '12' },
+    raidLeaderDurationMinutes: { value: '10' },
+    maxChatMessages: { value: '200' }
+  };
+
+  const sandbox = {
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {}
+    },
+    document: {
+      getElementById: (id) => elements[id] || null
+    },
+    console: { log() {}, warn() {}, error() {} },
+    window: {}
+  };
+  vm.createContext(sandbox);
+  const source = fs.readFileSync(path.join(projectRoot, 'js/settings.js'), 'utf8');
+  vm.runInContext(`${source}\nthis.SettingsManager = SettingsManager;`, sandbox);
+
+  const manager = new sandbox.SettingsManager();
+  assert.equal(manager.settings.enableSevenTvColors, true);
+
+  manager.settings.enableSevenTvColors = false;
+  manager.populateForm();
+  assert.equal(elements.enableSevenTvColors.checked, false);
+
+  elements.enableSevenTvColors.checked = true;
+  const updated = manager.readForm();
+  assert.equal(updated.enableSevenTvColors, true);
+});
+
+test('index.html contains #enableSevenTvColors input in settings modal', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  assert.match(html, /id="enableSevenTvColors"/);
+});
+
+test('index.html includes js/sevenTvTracker.js in jsFiles loader before app.js', () => {
+  const html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+  const sevenTvIdx = html.indexOf("'js/sevenTvTracker.js'");
+  const appIdx = html.indexOf("'js/app.js'");
+
+  assert.ok(sevenTvIdx > 0, 'index.html should include js/sevenTvTracker.js');
+  assert.ok(appIdx > sevenTvIdx, 'sevenTvTracker.js must be loaded before app.js');
+});
+
+test('style.css defines transition for .msg-author.twitch-author and .msg-author.seventv-painted', () => {
+  const css = fs.readFileSync(path.join(projectRoot, 'css/style.css'), 'utf8');
+  assert.match(css, /\.msg-author\.twitch-author\s*\{\s*transition:\s*color\s+0\.2s\s+ease,\s*text-shadow\s+0\.2s\s+ease,\s*filter\s+0\.2s\s+ease;/);
+  assert.match(css, /\.msg-author\.seventv-painted\s*\{/);
+  assert.match(css, /-webkit-background-clip:\s*text/);
+  assert.match(css, /-webkit-text-fill-color:\s*transparent/);
+});
+
+test('MultiChatApp: renderAuthorHTML includes data-twitch-user-id when userId is present', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+  app.normalizeTwitchLogin = (l) => l;
+  app.escapeHTML = (s) => String(s || '');
+
+  const htmlWithId = app.renderAuthorHTML(
+    { platform: 'twitch', login: 'viewer_bob', author: 'Bob', userId: '887766' },
+    'Bob'
+  );
+  assert.match(htmlWithId, /data-twitch-user-id="887766"/);
+  assert.match(htmlWithId, /data-twitch-username="viewer_bob"/);
+
+  const htmlWithoutId = app.renderAuthorHTML(
+    { platform: 'twitch', login: 'viewer_bob', author: 'Bob' },
+    'Bob'
+  );
+  assert.doesNotMatch(htmlWithoutId, /data-twitch-user-id/);
+});
+
+test('MultiChatApp: renderMessageNode applies cached 7TV style and queues lookup if not cached', () => {
+  const fakeElement = {
+    className: '',
+    classList: {
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      contains(c) { return this.classes.has(c); }
+    },
+    dataset: {},
+    innerHTML: ''
+  };
+
+  const sandboxDocument = {
+    readyState: 'loading',
+    getElementById: () => null,
+    createElement: () => fakeElement
+  };
+
+  const MultiChatAppWithDoc = loadMultiChatApp({ document: sandboxDocument });
+  const app = Object.create(MultiChatAppWithDoc.prototype);
+  app.chatMessagesEl = { appendChild() {} };
+  app.settings = { settings: { maxChatMessages: 200, enableSevenTvColors: true } };
+  app.pruneExcessMessages = () => {};
+  app.escapeHTML = (s) => String(s || '');
+  app.normalizeColor = (c) => c;
+  app.normalizeTwitchLogin = (l) => l;
+  app.renderAuthorHTML = (msg, escapedAuthor, style, isPainted) => {
+    const paintedClass = isPainted ? ' seventv-painted' : '';
+    return `<span class="msg-author twitch-author${paintedClass}" data-twitch-user-id="${msg.userId}" ${style}>${escapedAuthor}</span>`;
+  };
+  app.emotes = { getBadgesHTML: () => '' };
+
+  const queued = [];
+  app.sevenTvTracker = {
+    getStyle: (userId) => {
+      if (userId === '111') {
+        return {
+          color: 'rgba(255, 170, 0, 1)',
+          shadow: '0px 0px 4px rgba(255, 170, 0, 1)',
+          paint: {
+            backgroundImage: 'repeating-radial-gradient(ellipse, #1f59e0 0%, #00fbff 21%)',
+            filter: 'drop-shadow(0px 0px 4px rgba(0, 98, 255, 1))'
+          }
+        };
+      }
+      return null;
+    },
+    queueCheck: (userId) => queued.push(userId)
+  };
+
+  // 1. Message with cached 7TV paint style
+  const node1 = app.renderMessageNode(
+    { platform: 'twitch', author: 'User1', login: 'user1', userId: '111', color: '#fff' },
+    'Hello!'
+  );
+  assert.match(node1.innerHTML, /seventv-painted/);
+  assert.match(node1.innerHTML, /background-image: repeating-radial-gradient\(ellipse/);
+  assert.match(node1.innerHTML, /filter: drop-shadow\(0px 0px 4px rgba\(0, 98, 255, 1\)\)/);
+
+  // 2. Message without cached 7TV style -> should queue lookup
+  const node2 = app.renderMessageNode(
+    { platform: 'twitch', author: 'User2', login: 'user2', userId: '222', color: '#fff' },
+    'Hello 2!'
+  );
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0], '222');
+});
+
+test('MultiChatApp: handleSevenTvStyleDetected dynamically updates rendered author elements', () => {
+  const MultiChatApp = loadMultiChatApp();
+  const app = Object.create(MultiChatApp.prototype);
+  app.settings = { settings: { enableSevenTvColors: true } };
+
+  function createMockAuthorEl() {
+    return {
+      style: { color: '#ffffff', textShadow: '', backgroundImage: '', filter: '' },
+      classList: {
+        classes: new Set(),
+        add(c) { this.classes.add(c); },
+        remove(c) { this.classes.delete(c); },
+        contains(c) { return this.classes.has(c); }
+      }
+    };
+  }
+
+  const author1 = createMockAuthorEl();
+  const author2 = createMockAuthorEl();
+
+  app.chatMessagesEl = {
+    querySelectorAll: (sel) => {
+      if (sel.includes('777')) return [author1, author2];
+      return [];
+    }
+  };
+
+  // Update with paint
+  app.handleSevenTvStyleDetected('777', {
+    color: 'rgba(50, 230, 250, 0.988)',
+    shadow: '1px 1px 5px rgba(50, 230, 250, 1)',
+    paint: {
+      backgroundImage: 'repeating-radial-gradient(ellipse, blue 0%, cyan 21%)',
+      filter: 'drop-shadow(0px 0px 4px blue)'
+    }
+  });
+
+  assert.equal(author1.style.color, 'rgba(50, 230, 250, 0.988)');
+  assert.equal(author1.style.backgroundImage, 'repeating-radial-gradient(ellipse, blue 0%, cyan 21%)');
+  assert.equal(author1.style.filter, 'drop-shadow(0px 0px 4px blue)');
+  assert.ok(author1.classList.contains('seventv-painted'));
+
+  assert.equal(author2.style.color, 'rgba(50, 230, 250, 0.988)');
+  assert.equal(author2.style.backgroundImage, 'repeating-radial-gradient(ellipse, blue 0%, cyan 21%)');
+  assert.ok(author2.classList.contains('seventv-painted'));
+});
+
+
 
 

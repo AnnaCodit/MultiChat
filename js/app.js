@@ -19,6 +19,12 @@ class MultiChatApp {
         this.handleStreamerDetected(login, avgViewers);
       });
     }
+    this.sevenTvTracker = window.sevenTvTracker || (typeof SevenTvTracker !== 'undefined' ? new SevenTvTracker() : null);
+    if (this.sevenTvTracker && typeof this.sevenTvTracker.onStyleDetected === 'function') {
+      this.sevenTvTracker.onStyleDetected((userId, style) => {
+        this.handleSevenTvStyleDetected(userId, style);
+      });
+    }
 
     // Connectors
     this.twitch = new TwitchConnector(
@@ -84,6 +90,46 @@ class MultiChatApp {
     });
   }
 
+  handleSevenTvStyleDetected(userId, style) {
+    if (!this.chatMessagesEl || !userId || !style) return;
+    const enableSevenTvColors = this.settings?.settings?.enableSevenTvColors !== false;
+    if (!enableSevenTvColors) return;
+
+    const cleanUserId = String(userId).trim();
+    if (!/^\d+$/.test(cleanUserId)) return;
+
+    try {
+      const authorEls = this.chatMessagesEl.querySelectorAll(`.msg-author[data-twitch-user-id="${cleanUserId}"]`);
+      authorEls.forEach((authorEl) => {
+        if (style.paint && style.paint.backgroundImage) {
+          if (authorEl.classList && typeof authorEl.classList.add === 'function') {
+            authorEl.classList.add('seventv-painted');
+          }
+          authorEl.style.backgroundImage = style.paint.backgroundImage;
+          authorEl.style.filter = style.paint.filter || '';
+          authorEl.style.textShadow = '';
+          if (style.color) {
+            authorEl.style.color = style.color;
+          }
+        } else {
+          if (authorEl.classList && typeof authorEl.classList.remove === 'function') {
+            authorEl.classList.remove('seventv-painted');
+          }
+          authorEl.style.backgroundImage = '';
+          authorEl.style.filter = '';
+          if (style.color) {
+            authorEl.style.color = style.color;
+          }
+          if (style.shadow) {
+            authorEl.style.textShadow = style.shadow;
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('[MultiChat UI] Error applying 7TV style to DOM:', e);
+    }
+  }
+
   addDemoMessages() {
     // Demonstration Twitch message with 3 badges (Broadcaster + Subscriber + Partner)
     this.handleIncomingMessage({
@@ -92,6 +138,33 @@ class MultiChatApp {
       color: '#9146FF',
       badges: 'broadcaster/1,subscriber/1,partner/1',
       text: 'Привет! Чат подключен и готов к работе 🚀'
+    });
+
+    // Demonstration Twitch message from channel owner fra3a with 7TV Heavy Rain paint
+    if (this.sevenTvTracker && this.sevenTvTracker.cache) {
+      this.sevenTvTracker.cache.set('1239759441', {
+        color: 'rgba(255, 170, 0, 1)',
+        shadow: '0px 0px 4px rgba(0, 98, 255, 1)',
+        paint: {
+          id: '01KW7H0JWNJB13QMYWX7388149',
+          name: 'Heavy Rain',
+          backgroundImage: 'repeating-radial-gradient(ellipse, rgba(31, 89, 224, 1) 0.00%, rgba(0, 251, 255, 1) 21.00%, rgba(0, 95, 143, 1) 35.00%)',
+          filter: 'drop-shadow(0px 0px 4px rgba(0, 98, 255, 1))',
+          color: null,
+          shadow: '0px 0px 4px rgba(0, 98, 255, 1)'
+        },
+        timestamp: Math.floor(Date.now() / 1000),
+        found: true
+      });
+    }
+    this.handleIncomingMessage({
+      platform: 'twitch',
+      author: 'fra3a',
+      login: 'fra3a',
+      userId: '1239759441',
+      color: '#FFAA00',
+      badges: 'broadcaster/1,partner/1',
+      text: 'Демонстрация 7TV раскраски: у этого ника градиент "Heavy Rain" и неоновое свечение! 🌧️✨'
     });
 
     // Demonstration Twitch message from another streamer with high average online
@@ -283,15 +356,21 @@ class MultiChatApp {
     console.log(`[MultiChat UI] Twitch user badges ${shouldHide ? 'hidden' : 'shown'}.`);
   }
 
-  renderAuthorHTML(msg, escapedAuthor, authorStyle = '') {
+  renderAuthorHTML(msg, escapedAuthor, authorStyle = '', isPainted = false) {
     const classes = ['msg-author'];
     const attributes = [];
 
     if (msg.platform === 'twitch') {
       classes.push('twitch-author');
+      if (isPainted) {
+        classes.push('seventv-painted');
+      }
       const login = this.normalizeTwitchLogin(msg.login || msg.author);
       if (login) {
         attributes.push(`data-twitch-username="${this.escapeHTML(login)}"`);
+      }
+      if (msg.userId) {
+        attributes.push(`data-twitch-user-id="${this.escapeHTML(String(msg.userId))}"`);
       }
     }
 
@@ -504,10 +583,51 @@ class MultiChatApp {
       badgesHTML += `<span class="badge-first-today" title="Первое сообщение пользователя за последние ${windowHours}ч">☀️ 1-е за сегодня</span>`;
     }
 
-    // Custom user nickname color (with unreadable bright blue remapped to rgb(153, 153, 255))
-    const authorColor = this.normalizeColor(msg.color);
-    const authorStyle = authorColor ? `style="color: ${this.escapeHTML(authorColor)}"` : '';
-    const authorHTML = this.renderAuthorHTML(msg, escapedAuthor, authorStyle);
+    // Custom user nickname color & 7TV style (with unreadable bright blue remapped to rgb(153, 153, 255))
+    let authorColor = this.normalizeColor(msg.color);
+    let authorShadow = null;
+    let authorPaint = null;
+
+    if (msg.platform === 'twitch' && this.sevenTvTracker && this.settings?.settings?.enableSevenTvColors !== false) {
+      if (msg.userId) {
+        const cleanUserId = String(msg.userId).trim();
+        const sevenTvStyle = this.sevenTvTracker.getStyle(cleanUserId);
+        if (sevenTvStyle) {
+          if (sevenTvStyle.paint && sevenTvStyle.paint.backgroundImage) {
+            authorPaint = sevenTvStyle.paint;
+          }
+          if (sevenTvStyle.color) {
+            authorColor = sevenTvStyle.color;
+          }
+          if (sevenTvStyle.shadow) {
+            authorShadow = sevenTvStyle.shadow;
+          }
+        } else {
+          this.sevenTvTracker.queueCheck(cleanUserId);
+        }
+      }
+    }
+
+    const styleParts = [];
+    if (authorPaint && authorPaint.backgroundImage) {
+      styleParts.push(`background-image: ${this.escapeHTML(authorPaint.backgroundImage)}`);
+      if (authorPaint.filter) {
+        styleParts.push(`filter: ${this.escapeHTML(authorPaint.filter)}`);
+      }
+      if (authorColor) {
+        styleParts.push(`color: ${this.escapeHTML(authorColor)}`);
+      }
+    } else {
+      if (authorColor) {
+        styleParts.push(`color: ${this.escapeHTML(authorColor)}`);
+      }
+      if (authorShadow) {
+        styleParts.push(`text-shadow: ${this.escapeHTML(authorShadow)}`);
+      }
+    }
+    const authorStyle = styleParts.length ? `style="${styleParts.join('; ')}"` : '';
+    const isPainted = !!(authorPaint && authorPaint.backgroundImage);
+    const authorHTML = this.renderAuthorHTML(msg, escapedAuthor, authorStyle, isPainted);
 
     if (isReward) {
       // Collapsed Reward format with spoiler hint
