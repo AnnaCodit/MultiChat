@@ -218,3 +218,53 @@ test('fetchText times out without leaving the connection stuck', async () => {
   );
   connector.disconnect();
 });
+
+test('fetchText deadline includes a stalled response body and aborts transport', async () => {
+  let signal;
+  const connector = new YoutubeConnector(() => {}, () => {}, {
+    requestTimeoutMs: 10,
+    fetcher: async (_url, init) => {
+      signal = init.signal;
+      return { ok: true, text: () => new Promise(() => {}) };
+    }
+  });
+  connector.channelOrVideo = 'aaaaaaaaaaa';
+  connector.abortController = new AbortController();
+  await assert.rejects(connector.fetchText('https://www.youtube.com/live_chat', 0), error => error.code === 'FETCH_TIMEOUT');
+  assert.equal(signal.aborted, true);
+  connector.disconnect();
+});
+
+test('disconnect interrupts body reading even if the transport ignores abort', async () => {
+  let signal;
+  const connector = new YoutubeConnector(() => {}, () => {}, {
+    fetcher: async (_url, init) => {
+      signal = init.signal;
+      return { ok: true, text: () => new Promise(() => {}) };
+    }
+  });
+  connector.channelOrVideo = 'aaaaaaaaaaa';
+  connector.abortController = new AbortController();
+  const reading = connector.fetchText('https://www.youtube.com/live_chat', 0);
+  await new Promise(resolve => setImmediate(resolve));
+  connector.disconnect();
+  await assert.rejects(reading, { name: 'AbortError' });
+  assert.equal(signal.aborted, true);
+});
+
+test('body timeout schedules a polling retry instead of stalling the chat', async () => {
+  const scheduled = [];
+  const connector = new YoutubeConnector(() => {}, () => {}, {
+    requestTimeoutMs: 5,
+    fetcher: async () => ({ ok: true, text: () => new Promise(() => {}) }),
+    setTimer: (callback, delay) => { scheduled.push({ callback, delay }); return 1; },
+    clearTimer() {},
+    logger: { info() {}, warn() {}, error() {} }
+  });
+  connector.channelOrVideo = 'aaaaaaaaaaa';
+  connector.abortController = new AbortController();
+  await connector.pollChat('aaaaaaaaaaa', 0);
+  assert.equal(connector.consecutiveErrors, 1);
+  assert.equal(scheduled.length, 1);
+  connector.disconnect();
+});

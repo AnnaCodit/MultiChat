@@ -50,14 +50,14 @@ test('VK recent-message polling interval is kept in JS configuration', () => {
   const { connector } = createConnector();
   connector.channel = 'fra3a';
 
-  assert.equal(VkLiveConnector.CONFIG.pollIntervalMs, 4000);
+  assert.equal(VkLiveConnector.CONFIG.pollIntervalMs, 3000);
   assert.equal(
     connector.buildPollingUrl(),
     'https://api.live.vkvideo.ru/v1/blog/fra3a/public_video_stream/chat?limit=20'
   );
 });
 
-test('failed WebSocket switches to polling and schedules the next request after four seconds', async () => {
+test('failed WebSocket switches to polling and schedules the next request after three seconds', async () => {
   let socket;
   const requestedUrls = [];
   const context = createConnector({
@@ -78,7 +78,7 @@ test('failed WebSocket switches to polling and schedules the next request after 
 
   assert.equal(requestedUrls.length, 1);
   assert.equal(context.scheduled.length, 1);
-  assert.equal(context.scheduled[0].delay, 4000);
+  assert.equal(context.scheduled[0].delay, 3000);
   assert.ok(context.statuses.some(status => status.active && /резервный режим/.test(status.description)));
 });
 
@@ -143,4 +143,81 @@ test('disconnect aborts an in-flight poll and prevents stale messages from being
 
   assert.equal(context.messages.length, 0);
   assert.equal(context.scheduled.length, 0);
+});
+
+for (const stage of ['channel headers', 'channel body', 'page headers', 'page body']) {
+  for (const action of ['switch', 'disconnect']) {
+    test(`VK ignores stale ${stage} after ${action}`, async t => {
+      let release;
+      let oldSignal;
+      const pending = new Promise(resolve => { release = resolve; });
+      const oldChannel = { data: { channel: { id: 'old-id' } } };
+      const oldPage = '{"wsToken":"old-token"}';
+      const sockets = [];
+      const requested = [];
+      const context = createConnector({
+        createWebSocket: () => {
+          const socket = { send() {}, close() { this.closed = true; } };
+          sockets.push(socket);
+          return socket;
+        },
+        fetcher: async (url, init) => {
+          requested.push(url);
+          if (url.endsWith('/newchannel')) {
+            return { json: async () => ({ data: { channel: { id: 'new-id' } } }), text: async () => '{"wsToken":"new-token"}' };
+          }
+          oldSignal = init.signal;
+          const isChannel = url.includes('/v1/channel/');
+          const response = isChannel
+            ? { json: () => stage === 'channel body' ? pending : Promise.resolve(oldChannel) }
+            : { text: () => stage === 'page body' ? pending : Promise.resolve(oldPage) };
+          if ((isChannel && stage === 'channel headers') || (!isChannel && stage === 'page headers')) return pending;
+          return response;
+        }
+      });
+      const { connector } = context;
+      t.after(() => connector.disconnect());
+      const connecting = connector.connect('oldchannel');
+      await new Promise(resolve => setImmediate(resolve));
+      if (action === 'switch') await connector.connect('newchannel');
+      else connector.disconnect();
+      assert.equal(oldSignal.aborted, true);
+      const currentSocket = connector.ws;
+      const currentChannelId = connector.channelId;
+      const requestCount = requested.length;
+      if (stage === 'channel headers') release({ json: async () => oldChannel });
+      else if (stage === 'channel body') release(oldChannel);
+      else if (stage === 'page headers') release({ text: async () => oldPage });
+      else release(oldPage);
+      await connecting;
+      assert.equal(connector.channel, action === 'switch' ? 'newchannel' : '');
+      assert.equal(connector.channelId, currentChannelId);
+      assert.equal(connector.ws, currentSocket);
+      assert.equal(sockets.length, action === 'switch' ? 1 : 0);
+      assert.equal(requested.length, requestCount);
+      assert.equal(context.scheduled.length, 0);
+    });
+  }
+}
+
+test('VK ignores queued events from a replaced socket', () => {
+  const { connector, messages, statuses, scheduled } = createConnector();
+  connector.channel = 'oldchannel';
+  connector.initCentrifugoWS('old-token');
+  const old = connector.ws;
+  const callbacks = { open: old.onopen, message: old.onmessage, close: old.onclose, error: old.onerror };
+  connector.disconnect();
+  connector.channel = 'newchannel';
+  connector.initCentrifugoWS('new-token');
+  const currentSocket = connector.ws;
+  const statusCount = statuses.length;
+  callbacks.open();
+  callbacks.message({ data: JSON.stringify({ push: { pub: { data: pollingMessage(1, 1, 'stale') } } }) });
+  callbacks.close({ code: 1006, reason: '' });
+  callbacks.error(new Error('stale'));
+  assert.equal(connector.ws, currentSocket);
+  assert.equal(messages.length, 0);
+  assert.equal(statuses.length, statusCount);
+  assert.equal(scheduled.length, 0);
+  connector.disconnect();
 });

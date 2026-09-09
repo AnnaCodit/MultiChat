@@ -5,7 +5,7 @@
  */
 
 const VK_LIVE_CONNECTOR_CONFIG = Object.freeze({
-  pollIntervalMs: 4000,
+  pollIntervalMs: 3000,
   pollMessageLimit: 20
 });
 
@@ -27,6 +27,7 @@ class VkLiveConnector {
     this.pollTimer = null;
     this.pollAbortController = null;
     this.connectionId = 0;
+    this.setupAbortController = null;
     this.isPolling = false;
     this.isPollingOnline = false;
     this.seenMessageIds = new Set();
@@ -46,7 +47,10 @@ class VkLiveConnector {
       return;
     }
 
-    this.channel = channelName.toLowerCase().trim().replace(/^@+/, '');
+    const channel = channelName.toLowerCase().trim().replace(/^@+/, '');
+    this.channel = channel;
+    this.setupAbortController = new AbortController();
+    const signal = this.setupAbortController.signal;
     console.log(`[VK Live Connector] Connecting VK channel: ${this.channel}...`);
     this.onStatus('vk', false, 'Поиск канала VK Live...');
 
@@ -69,8 +73,10 @@ class VkLiveConnector {
 
     try {
       // 1. Fetch channel ID from VK Video Live API
-      const chanRes = await fetchWithCorsProxy(`https://api.live.vkvideo.ru/v1/channel/${encodeURIComponent(this.channel)}`);
+      const chanRes = await this.fetcher(`https://api.live.vkvideo.ru/v1/channel/${encodeURIComponent(channel)}`, { signal });
+      if (!this.isConnectionActive(connectionId)) return;
       const chanData = await chanRes.json();
+      if (!this.isConnectionActive(connectionId)) return;
       if (!chanData || !chanData.data || !chanData.data.channel || !chanData.data.channel.id) {
         throw new Error('Channel ID not found');
       }
@@ -79,8 +85,10 @@ class VkLiveConnector {
       console.log(`[VK Live Connector] Found VK Channel ID: ${this.channelId}`);
 
       // 2. Fetch HTML page to extract guest JWT token
-      const htmlRes = await fetchWithCorsProxy(`https://live.vkvideo.ru/${encodeURIComponent(this.channel)}`);
+      const htmlRes = await this.fetcher(`https://live.vkvideo.ru/${encodeURIComponent(channel)}`, { signal });
+      if (!this.isConnectionActive(connectionId)) return;
       const html = await htmlRes.text();
+      if (!this.isConnectionActive(connectionId)) return;
       
       const jwtToken = this.extractJwtTokenFromHtml(html);
       if (!jwtToken) {
@@ -98,11 +106,15 @@ class VkLiveConnector {
       } catch(e) {}
 
       // Cache token in localStorage
-      localStorage.setItem(cacheKey, JSON.stringify({
-        channelId: this.channelId,
-        jwtToken: jwtToken,
-        exp: exp
-      }));
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          channelId: this.channelId,
+          jwtToken: jwtToken,
+          exp: exp
+        }));
+      } catch (error) {
+        this.logger.warn('[VK Live Connector] Unable to save credentials cache:', error);
+      }
 
       console.log(`[VK Live Connector] Extracted guest JWT token. Opening Centrifugo WS...`);
       this.initCentrifugoWS(jwtToken, connectionId);
@@ -135,21 +147,24 @@ class VkLiveConnector {
   }
 
   initCentrifugoWS(jwtToken, connectionId = this.connectionId) {
+    if (!this.isConnectionActive(connectionId)) return;
     try {
       const wsUrl = 'wss://pubsub.live.vkvideo.ru/connection/websocket?cf_protocol_version=v2';
-      this.ws = this.createWebSocket(wsUrl);
+      const ws = this.createWebSocket(wsUrl);
+      this.ws = ws;
+      const isCurrentSocket = () => this.isConnectionActive(connectionId) && this.ws === ws;
 
-      this.ws.onopen = () => {
-        if (connectionId !== this.connectionId) return;
+      ws.onopen = () => {
+        if (!isCurrentSocket()) return;
         console.log('[VK Live Connector] Centrifugo WS opened. Sending connect packet...');
-        this.ws.send(JSON.stringify({
+        ws.send(JSON.stringify({
           connect: { token: jwtToken, name: 'js' },
           id: 1
         }));
       };
 
-      this.ws.onmessage = (event) => {
-        if (connectionId !== this.connectionId) return;
+      ws.onmessage = (event) => {
+        if (!isCurrentSocket()) return;
         const rawText = (event.data || '').toString().trim();
         if (!rawText) return;
 
@@ -162,8 +177,8 @@ class VkLiveConnector {
 
           // 1. Centrifugo Server Ping/Pong protocol handler
           if (trimmedLine === '{}') {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.send('{}');
+            if (isCurrentSocket() && ws.readyState === ws.OPEN) {
+              ws.send('{}');
             }
             continue;
           }
@@ -175,11 +190,11 @@ class VkLiveConnector {
             if (packet.id === 1 && packet.connect) {
               this.stopPolling();
               console.log(`[VK Live Connector] Connected! Subscribing to channel-chat:${this.channelId}...`);
-              this.ws.send(JSON.stringify({
+              ws.send(JSON.stringify({
                 subscribe: { channel: `channel-chat:${this.channelId}` },
                 id: 2
               }));
-              this.ws.send(JSON.stringify({
+              ws.send(JSON.stringify({
                 subscribe: { channel: `channel-chat:${this.channelId}@0` },
                 id: 3
               }));
@@ -188,7 +203,7 @@ class VkLiveConnector {
 
             if (packet.id === 1 && packet.error) {
               this.logger.warn('[VK Live Connector] Centrifugo rejected the connection:', packet.error);
-              this.ws.close();
+              ws.close();
             }
 
             // Handle incoming push publication
@@ -201,14 +216,14 @@ class VkLiveConnector {
         }
       };
 
-      this.ws.onerror = (err) => {
-        if (connectionId !== this.connectionId) return;
+      ws.onerror = (err) => {
+        if (!isCurrentSocket()) return;
         console.error('[VK Live Connector] WS Error:', err);
         this.onStatus('vk', false, 'WebSocket недоступен');
       };
 
-      this.ws.onclose = (ev) => {
-        if (connectionId !== this.connectionId || !this.channel) return;
+      ws.onclose = (ev) => {
+        if (!isCurrentSocket()) return;
         this.logger.warn(`[VK Live Connector] WS Closed (Code: ${ev.code}, Reason: ${ev.reason}). Switching to polling.`);
         this.ws = null;
         this.startPolling(connectionId);
@@ -403,12 +418,22 @@ class VkLiveConnector {
     return String(content);
   }
 
+  isConnectionActive(connectionId) {
+    return connectionId === this.connectionId && Boolean(this.channel) && !this.setupAbortController?.signal.aborted;
+  }
+
   disconnect() {
     this.connectionId += 1;
+    if (this.setupAbortController) {
+      this.setupAbortController.abort();
+      this.setupAbortController = null;
+    }
     this.channel = '';
     this.channelId = null;
     this.stopPolling();
     if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
       this.ws.onclose = null;
       this.ws.onerror = null;
       try { this.ws.close(); } catch (e) {}

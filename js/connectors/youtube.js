@@ -616,45 +616,51 @@ class YoutubeConnector {
   async fetchText(url, connectionId) {
     const sessionSignal = this.abortController?.signal;
     const requestController = new AbortController();
-    const abortRequest = () => requestController.abort();
-    sessionSignal?.addEventListener('abort', abortRequest, { once: true });
-
     let timeoutId;
-    const timeoutPromise = new Promise((resolve, reject) => {
-      timeoutId = setTimeout(() => {
+    let abortRequest;
+
+    // Keep cancellation and the deadline active until the entire body is read.
+    const interruption = new Promise((resolve, reject) => {
+      abortRequest = () => {
+        const error = new Error('YouTube connection was replaced');
+        error.name = 'AbortError';
+        reject(error);
         requestController.abort();
+      };
+      if (!this.isConnectionActive(connectionId)) {
+        abortRequest();
+        return;
+      }
+      sessionSignal?.addEventListener('abort', abortRequest, { once: true });
+      timeoutId = setTimeout(() => {
         const error = new Error(`YouTube request timed out after ${this.requestTimeoutMs}ms`);
         error.code = 'FETCH_TIMEOUT';
         reject(error);
+        requestController.abort();
       }, this.requestTimeoutMs);
     });
 
-    let response;
     try {
-      response = await Promise.race([
-        this.fetcher(url, {
-          method: 'GET',
-          signal: requestController.signal,
-          cache: 'no-store'
-        }),
-        timeoutPromise
+      return await Promise.race([
+        interruption,
+        (async () => {
+          if (requestController.signal.aborted) return;
+          const response = await this.fetcher(url, {
+            method: 'GET',
+            signal: requestController.signal,
+            cache: 'no-store'
+          });
+          if (requestController.signal.aborted) return;
+          if (!response?.ok) {
+            throw new Error(`YouTube HTTP ${response?.status || 'error'}`);
+          }
+          return await response.text();
+        })()
       ]);
     } finally {
       clearTimeout(timeoutId);
       sessionSignal?.removeEventListener('abort', abortRequest);
     }
-
-    if (!this.isConnectionActive(connectionId)) {
-      const error = new Error('YouTube connection was replaced');
-      error.name = 'AbortError';
-      throw error;
-    }
-
-    if (!response?.ok) {
-      throw new Error(`YouTube HTTP ${response?.status || 'error'}`);
-    }
-
-    return response.text();
   }
 
   schedulePoll(videoId, connectionId, delayMs) {

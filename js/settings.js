@@ -98,7 +98,10 @@ class SettingsManager {
 
     // Add channel names
     addIfNotEmpty(this.settings.twitchChannel);
-    addIfNotEmpty(this.settings.kickChannel);
+    const kickChannel = typeof this.settings.kickChannel === 'string'
+      ? this.settings.kickChannel.trim()
+      : '';
+    addIfNotEmpty(kickChannel.replace(/^https?:\/\/(?:www\.)?kick\.com\/([^/?#]+)\/?(?:[?#].*)?$/i, '$1'));
     addIfNotEmpty(this.settings.vkChannel);
     addIfNotEmpty(this.settings.youtubeChannel);
 

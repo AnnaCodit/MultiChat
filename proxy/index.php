@@ -8,7 +8,7 @@ const CONNECT_TIMEOUT_SECONDS = 7;
 const REQUEST_TIMEOUT_SECONDS = 25;
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const PROXY_LOG_FILE = __DIR__ . '/proxy.log';
-const UPSTREAM_PROXY_CONFIG_FILE = __DIR__ . '/settings.php';
+const UPSTREAM_PROXY_CONFIG_FILE = __DIR__ . '/proxy.settings.php';
 
 // Browser origins allowed to use the deployed proxy. Origin never includes a URL path.
 const ALLOWED_ORIGINS = [
@@ -35,11 +35,9 @@ const ALLOWED_HOST_SUFFIXES = [
     'twitchtracker.com',
 ];
 
-// Kick may block requests from hosting-provider IP ranges. These stable chatroom IDs
-// keep known channels working without exposing credentials or relying on a public proxy.
-const KICK_CHATROOM_IDS = [
-    'fra3a' => '63014532',
-];
+// Cache only validated Kick channel metadata; keep runtime data outside the web root.
+const KICK_CACHE_TTL_SECONDS = 900;
+const MAX_KICK_CACHE_BYTES = 5 * 1024 * 1024;
 
 header_remove('X-Powered-By');
 header('X-Multichat-Proxy: generic');
@@ -142,7 +140,7 @@ function getUpstreamProxyConfig(): ?array
     if (is_file(UPSTREAM_PROXY_CONFIG_FILE)) {
         $localValues = require UPSTREAM_PROXY_CONFIG_FILE;
         if (!is_array($localValues)) {
-            fail(500, 'The upstream proxy configuration is invalid.', 'settings.php must return an array.');
+            fail(500, 'The upstream proxy configuration is invalid.', 'proxy.settings.php must return an array.');
         }
 
         $values = array_merge($values, $localValues);
@@ -189,7 +187,8 @@ function getUpstreamProxyConfig(): ?array
 function shouldUseUpstreamProxy(string $url): bool
 {
     $host = (string) (parse_url($url, PHP_URL_HOST) ?? '');
-    return hostMatchesSuffix($host, 'youtube.com');
+    return hostMatchesSuffix($host, 'youtube.com')
+        || hostMatchesSuffix($host, 'kick.com');
 }
 
 function applyUpstreamProxy($curl, string $url): ?array
@@ -445,32 +444,81 @@ function fetchUrl(string $url): array
     return fetchUrlOnce($url, CURL_IPRESOLVE_V6);
 }
 
-function getKickChatroomFallback(string $url): ?array
+function getKickChannelSlug(string $url): ?string
 {
     $parts = parse_url($url);
-    if ($parts === false || !isset($parts['host'], $parts['path'])) {
+    $host = strtolower((string) ($parts['host'] ?? ''));
+    if (!in_array($host, ['kick.com', 'www.kick.com'], true) || isset($parts['query'])) {
         return null;
     }
-
-    $host = strtolower((string) $parts['host']);
-    if ($host !== 'kick.com' && $host !== 'www.kick.com') {
+    if (preg_match('~^/api/v[12]/channels/([a-zA-Z0-9_-]+)/?$~', (string) ($parts['path'] ?? ''), $matches) !== 1) {
         return null;
     }
+    return strtolower($matches[1]);
+}
 
-    if (preg_match('~^/api/v[12]/channels/([^/]+)$~', (string) $parts['path'], $matches) !== 1) {
+function isKickChannelResponse(string $body, string $slug): bool
+{
+    $data = json_decode($body, true);
+    $id = $data['chatroom']['id'] ?? null;
+    return is_array($data)
+        && is_string($data['slug'] ?? null)
+        && strtolower($data['slug']) === $slug
+        && (is_int($id) || is_string($id))
+        && preg_match('/^[1-9][0-9]*$/', (string) $id) === 1;
+}
+
+function kickChannelCache(string $url, ?string $body = null): ?string
+{
+    $slug = getKickChannelSlug($url);
+    if ($slug === null) return null;
+    if ($body !== null && (!isKickChannelResponse($body, $slug) || strlen($body) > 256 * 1024)) return null;
+
+    $path = sys_get_temp_dir() . '/multichat-kick-' . sha1(__DIR__) . '.json';
+    $handle = @fopen($path, 'c+');
+    if ($handle === false) {
+        logProxy('Kick metadata cache unavailable.');
         return null;
     }
-
-    $slug = strtolower(rawurldecode($matches[1]));
-    if (!isset(KICK_CHATROOM_IDS[$slug])) {
+    try {
+        if (!flock($handle, LOCK_EX)) {
+            logProxy('Unable to lock Kick metadata cache.');
+            return null;
+        }
+        $raw = stream_get_contents($handle, MAX_KICK_CACHE_BYTES + 1);
+        $entries = is_string($raw) && strlen($raw) <= MAX_KICK_CACHE_BYTES ? json_decode($raw, true) : null;
+        if (!is_array($entries)) $entries = [];
+        $now = time();
+        foreach ($entries as $key => $entry) {
+            if (!is_array($entry) || !is_int($entry['expires'] ?? null) || $entry['expires'] <= $now) {
+                unset($entries[$key]);
+            }
+        }
+        // v1 and v2 payloads differ: do not share their cached response bodies.
+        $key = hash('sha256', $url);
+        if ($body === null) {
+            $cached = $entries[$key]['body'] ?? null;
+            return is_string($cached) && isKickChannelResponse($cached, $slug) ? $cached : null;
+        }
+        unset($entries[$key]);
+        $entries[$key] = ['expires' => $now + KICK_CACHE_TTL_SECONDS, 'body' => $body];
+        while (count($entries) > 200) array_shift($entries);
+        $encoded = json_encode($entries, JSON_UNESCAPED_SLASHES);
+        while (is_string($encoded) && strlen($encoded) > MAX_KICK_CACHE_BYTES) {
+            array_shift($entries);
+            $encoded = json_encode($entries, JSON_UNESCAPED_SLASHES);
+        }
+        if (is_string($encoded)) {
+            rewind($handle);
+            if (!ftruncate($handle, 0) || fwrite($handle, $encoded) !== strlen($encoded) || !fflush($handle)) {
+                logProxy('Unable to write Kick metadata cache.');
+            }
+        }
         return null;
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
     }
-
-    return [
-        'slug' => $slug,
-        'chatroom' => ['id' => KICK_CHATROOM_IDS[$slug]],
-        'emotes' => [],
-    ];
 }
 
 applyCorsHeaders();
@@ -496,17 +544,11 @@ if ($url === '' || !isAllowedUrl($url)) {
     fail(400, 'The target URL is not allowed.', 'Rejected URL: ' . urlForLog($url));
 }
 
-$kickFallback = getKickChatroomFallback($url);
-if ($kickFallback !== null) {
-    $body = json_encode($kickFallback, JSON_UNESCAPED_SLASHES);
-    if ($body === false) {
-        fail(500, 'Unable to build the Kick fallback response.', 'JSON encoding failed for Kick fallback.');
-    }
-
-    header('X-Multichat-Proxy: kick-static-fallback');
+$cachedKickChannel = kickChannelCache($url);
+if ($cachedKickChannel !== null) {
+    header('X-Multichat-Proxy: kick-cache');
     header('Content-Type: application/json; charset=utf-8');
-    logProxy('Served static Kick chatroom mapping for channel: ' . $kickFallback['slug']);
-    echo $body;
+    echo $cachedKickChannel;
     exit;
 }
 
@@ -562,7 +604,16 @@ for ($redirectCount = 0; $redirectCount <= MAX_REDIRECTS; $redirectCount++) {
         header('X-Multichat-Proxy: upstream-' . $result['upstreamProxyType']);
     }
 
-    echo (string) ($result['body'] ?? '');
+    $body = (string) ($result['body'] ?? '');
+    $kickSlug = getKickChannelSlug($url);
+    if ($kickSlug !== null) {
+        if (!isKickChannelResponse($body, $kickSlug)) {
+            fail(502, 'Kick returned an invalid channel response.', 'Invalid Kick metadata for ' . $kickSlug);
+        }
+        kickChannelCache($url, $body);
+        logProxy('Resolved Kick channel: ' . $kickSlug);
+    }
+    echo $body;
     exit;
 }
 

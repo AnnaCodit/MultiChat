@@ -5,4 +5,4 @@ docs/
 .superpowers/
 .env
 *sftp*
-proxy/settings.php
+proxy/proxy.settings.php

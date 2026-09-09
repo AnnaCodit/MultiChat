@@ -32,7 +32,7 @@ class MultiChatApp {
       (plat, active, desc) => this.updateStatus(plat, active, desc),
       (raid) => this.handleRaidEvent(raid)
     );
-    this.kick = new KickConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc, viewerCount) => this.updateStatus(plat, active, desc, viewerCount));
+    this.kick = new KickConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
     this.vk = new VkLiveConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
     this.youtube = new YoutubeConnector((msg) => this.handleIncomingMessage(msg), (plat, active, desc) => this.updateStatus(plat, active, desc));
 
@@ -40,7 +40,6 @@ class MultiChatApp {
     this.chatContainerEl = document.getElementById('chatContainer');
     this.unreadBadgeEl = document.getElementById('unreadBadge');
     this.unreadBadgeTextEl = document.getElementById('unreadBadgeText');
-    this.kickViewerCountEl = document.getElementById('kickViewerCount');
     this.twitchUserPopup = new TwitchUserPopup({
       chatMessagesEl: this.chatMessagesEl,
       chatContainerEl: this.chatContainerEl,
@@ -391,13 +390,13 @@ class MultiChatApp {
     // 2. Load emotes in background asynchronously
     if (config.enableThirdPartyEmotes) {
       this.emotes.loadGlobalEmotes().catch(e => console.warn(e));
-      this.emotes.loadChannelEmotes(config.twitchChannel, config.kickChannel).catch(e => console.warn(e));
+      this.emotes.loadChannelEmotes(config.twitchChannel, this.kick.channel).catch(e => console.warn(e));
     } else {
       this.emotes.clear();
     }
   }
 
-  updateStatus(platform, isOnline, description, viewerCount = null) {
+  updateStatus(platform, isOnline, description) {
     const badgeMap = {
       twitch: 'statusTwitch',
       kick: 'statusKick',
@@ -419,17 +418,6 @@ class MultiChatApp {
       el.classList.add('offline');
     }
     el.title = `${platform.toUpperCase()}: ${description}`;
-
-    if (platform === 'kick') {
-      const countEl = this.kickViewerCountEl || document.getElementById('kickViewerCount');
-      if (countEl) {
-        if (isOnline && typeof viewerCount === 'number') {
-          countEl.textContent = String(viewerCount);
-        } else {
-          countEl.textContent = '';
-        }
-      }
-    }
   }
 
   isAuthorFavorite(msg, favoriteUsers = []) {

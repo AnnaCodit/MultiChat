@@ -121,17 +121,6 @@ body.dark-theme {
   color: var(--accent-green);
 }
 
-.status-kick .viewer-count {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  margin-left: 2px;
-  color: #dc2626;
-}
-
-.status-kick .viewer-count:empty {
-  display: none;
-}
-
 .status-vk .platform-icon {
   background-color: var(--accent-blue);
   color: var(--accent-blue);
@@ -884,7 +873,8 @@ input:checked+.slider:before {
 
 .chat-line-mention {
   border-left: 3px solid #ef4444;
-  background: linear-gradient(90deg, rgba(239, 68, 68, 0.28) 0%, rgba(220, 38, 38, 0.12) 100%);
+  background: #e1323227;
+  /* background: linear-gradient(90deg, rgba(239, 68, 68, 0.28) 0%, rgba(220, 38, 38, 0.12) 100%); */
 }
 
 /* Twitch Channel Points Reward Messages */
