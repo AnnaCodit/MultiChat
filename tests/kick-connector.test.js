@@ -131,3 +131,112 @@ test('Kick channel URL remains a streamer nickname for message filtering', () =>
   settings.settings = { kickChannel: '  https://kick.com/Some_Channel/?tab=chat  ' };
   assert.deepEqual(settings.getStreamerNicknames(), ['some_channel']);
 });
+
+test('Kick connector uses the active 2026 Pusher key by default', async t => {
+  let createdUrl = null;
+  const sockets = [];
+  const connector = new KickConnector(() => {}, () => {}, {
+    fetcher: async () => ({ ok: true, json: async () => ({ chatroom: { id: 777 } }) }),
+    createWebSocket: (url) => {
+      createdUrl = url;
+      const socket = { sent: [], send(v) { this.sent.push(v); }, close() { this.closed = true; } };
+      sockets.push(socket);
+      return socket;
+    }
+  });
+  t.after(() => connector.disconnect());
+  await connector.connect('testchannel');
+  assert.ok(createdUrl, 'WebSocket URL was created');
+  assert.match(createdUrl, /34bf7a0ff419a2a775b9/, 'URL must use the active Pusher key 34bf7a0ff419a2a775b9');
+  assert.match(createdUrl, /ws-us2\.pusher\.com/, 'URL must use us2 cluster');
+});
+
+test('Kick connector rotates Pusher key on 4001 refusal and handles pusher:ping', async t => {
+  const createdUrls = [];
+  const sockets = [];
+  const connector = new KickConnector(() => {}, () => {}, {
+    fetcher: async () => ({ ok: true, json: async () => ({ chatroom: { id: 888 } }) }),
+    createWebSocket: (url) => {
+      createdUrls.push(url);
+      const socket = { sent: [], send(v) { this.sent.push(v); }, close() { this.closed = true; } };
+      sockets.push(socket);
+      return socket;
+    },
+    pusherConfig: {
+      knownKeys: ['first-key', 'second-key'],
+      cluster: 'us2'
+    }
+  });
+  t.after(() => connector.disconnect());
+  await connector.connect('testchannel');
+
+  assert.equal(createdUrls.length, 1);
+  assert.match(createdUrls[0], /first-key/);
+
+  const socket1 = sockets[0];
+  socket1.onopen();
+  // Simulate Pusher ping
+  socket1.onmessage({ data: JSON.stringify({ event: 'pusher:ping' }) });
+  assert.ok(socket1.sent.some(s => JSON.parse(s).event === 'pusher:pong'), 'Responded to ping with pong');
+
+  // Simulate Pusher error 4001
+  socket1.onmessage({ data: JSON.stringify({ event: 'pusher:error', data: { code: 4001, message: 'App key first-key not in this cluster' } }) });
+  socket1.onclose({ code: 4001, reason: 'Refused' });
+
+  // Fast forward the reconnect timer
+  await new Promise(resolve => setTimeout(resolve, 1100));
+
+  assert.equal(createdUrls.length, 2, 'Connector reconnected with next key');
+  assert.match(createdUrls[1], /second-key/, 'Second attempt used fallback key');
+
+  // Second connection succeeds
+  const socket2 = sockets[1];
+  socket2.onopen();
+  socket2.onmessage({ data: JSON.stringify({ event: 'pusher:connection_established', data: JSON.stringify({ socket_id: '123' }) }) });
+  assert.equal(connector.currentKey, 'second-key');
+});
+
+test('Kick connector cycles through multiple fallback keys without getting stuck in infinite loop', async t => {
+  const createdUrls = [];
+  const sockets = [];
+  const connector = new KickConnector(() => {}, () => {}, {
+    fetcher: async () => ({ ok: true, json: async () => ({ chatroom: { id: 999 } }) }),
+    createWebSocket: (url) => {
+      createdUrls.push(url);
+      const socket = { sent: [], send(v) { this.sent.push(v); }, close() { this.closed = true; } };
+      sockets.push(socket);
+      return socket;
+    },
+    pusherConfig: {
+      knownKeys: ['key-A', 'key-B', 'key-C'],
+      cluster: 'us2'
+    }
+  });
+  t.after(() => connector.disconnect());
+  await connector.connect('testchannel');
+
+  assert.match(createdUrls[0], /key-A/);
+
+  // Failure 1: key-A fails
+  sockets[0].onopen();
+  sockets[0].onmessage({ data: JSON.stringify({ event: 'pusher:error', data: { code: 4001, message: 'not in this cluster' } }) });
+  sockets[0].onclose({ code: 4001, reason: 'Refused' });
+  await new Promise(r => setTimeout(r, 1100));
+
+  assert.equal(createdUrls.length, 2);
+  assert.match(createdUrls[1], /key-B/);
+
+  // Failure 2: key-B fails with non-JSON string error payload
+  sockets[1].onopen();
+  sockets[1].onmessage({ data: JSON.stringify({ event: 'pusher:error', data: 'App key key-B not in this cluster' }) });
+  sockets[1].onclose({ code: 4001, reason: 'Refused' });
+  await new Promise(r => setTimeout(r, 1100));
+
+  assert.equal(createdUrls.length, 3);
+  assert.match(createdUrls[2], /key-C/);
+
+  // Failure 3: key-C fails (cycles back to key-A)
+  sockets[2].onopen();
+  sockets[2].onclose({ code: 4001, reason: 'Refused' });
+  assert.equal(connector.currentKey, 'key-A');
+});
