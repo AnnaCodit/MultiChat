@@ -9,14 +9,15 @@ function rethrowIfRequestWasAborted(init, error) {
   if (init.signal?.aborted) throw error;
 }
 
-async function fetchWithCorsProxy(url, init = {}) {
+async function fetchWithCorsProxy(url, init = {}, options = {}) {
+  const { operation, refresh, readResponse = response => response } = options;
   // Skip direct fetch for CORS-restricted domains to prevent red console errors
   const isCorsBlockedDirectly = /youtube\.com|kick\.com|vkplay\.live|vkvideo\.ru/i.test(url);
 
   if (!isCorsBlockedDirectly) {
     try {
       const res = await fetch(url, init);
-      if (res.ok) return res;
+      if (res.ok) return await readResponse(res);
     } catch (e) {
       rethrowIfRequestWasAborted(init, e);
       // Direct fetch failed
@@ -24,57 +25,106 @@ async function fetchWithCorsProxy(url, init = {}) {
   }
 
   const encodedUrl = encodeURIComponent(url);
+  const primaryQuery = operation ? new URLSearchParams({ url, operation }) : `url=${encodedUrl}`;
+  if (operation && refresh) primaryQuery.set('refresh', '1');
 
   // 1. Собственный прокси; публичные сервисы ниже остаются аварийными fallback-ами.
-  try {
-    const res = await fetch(`${MULTICHAT_PROXY_URL}?url=${encodedUrl}`, init);
-    if (res && res.ok) return res;
+  let primaryError;
+  const primary = async requestInit => {
+    let response;
+    try {
+      response = await fetch(`${MULTICHAT_PROXY_URL}?${primaryQuery}`, requestInit);
+      if (response?.ok) return await readResponse(response);
+      throw new Error('Own proxy returned an HTTP error');
+    } catch (error) {
+      rethrowIfRequestWasAborted(requestInit, error);
+      const requestId = response?.headers?.get('X-Multichat-Request-Id');
+      const errorCode = response?.headers?.get('X-Multichat-Error');
+      primaryError = Object.assign(new Error('Own proxy request failed', { cause: error }), {
+        status: response?.status,
+        code: error?.code,
+        requestId: /^[a-z\d-]{1,80}$/i.test(requestId || '') ? requestId : undefined,
+        proxyCode: /^[a-z_]{1,50}$/.test(errorCode || '') ? errorCode : undefined
+      });
+      console.warn('[CORS Proxy] Own route failed; trying public fallbacks.', {
+        operation, status: primaryError.status, code: primaryError.proxyCode || primaryError.code,
+        requestId: primaryError.requestId
+      });
+      throw primaryError;
+    }
+  };
 
-    console.warn(`[CORS Proxy] fra3a.ru returned HTTP ${res?.status || 'error'}; trying public fallbacks.`);
-  } catch (e) {
-    rethrowIfRequestWasAborted(init, e);
-    console.warn('[CORS Proxy] fra3a.ru is unavailable; trying public fallbacks.', e);
-  }
+  const fallbacks = [
+    // 2. Corsproxy.io (публичный прокси)
+    [`https://corsproxy.io/?${encodedUrl}`],
+    // 3. AllOrigins JSON Endpoint (/get) - возвращает 200 OK с { contents: "..." }
+    [`https://api.allorigins.win/get?url=${encodedUrl}`, true],
+    // 4. AllOrigins Raw Endpoint
+    [`https://api.allorigins.win/raw?url=${encodedUrl}`],
+    // 5. Codetabs proxy fallback
+    [`https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`]
+  ].map(([proxyUrl, wrapped]) => async requestInit => {
+    let response = await fetch(proxyUrl, requestInit);
+    if (!response?.ok) throw new Error('Public proxy returned an HTTP error');
+    if (wrapped) {
+      const data = await response.json();
+      if (typeof data?.contents !== 'string' || !data.contents) throw new Error('Public proxy returned an empty response');
+      response = new Response(data.contents, { headers: { 'Content-Type': 'text/html' } });
+    }
+    return readResponse(response);
+  });
 
-  // 2. Corsproxy.io (быстрый и надежный публичный прокси)
-  try {
-    const res = await fetch(`https://corsproxy.io/?${encodedUrl}`, init);
-    if (res && res.ok) return res;
-  } catch (e) {
-    rethrowIfRequestWasAborted(init, e);
-  }
-
-  // 3. AllOrigins JSON Endpoint (/get) - возвращает 200 OK с { contents: "..." }
-  try {
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodedUrl}`, init);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data.contents === 'string' && data.contents.length > 0) {
-        return new Response(data.contents, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html' }
-        });
+  const attempts = [primary, ...fallbacks];
+  if (operation && typeof AbortSignal.any === 'function') {
+    try {
+      return await fetchFirstValidProxy(attempts, init);
+    } catch (error) {
+      if (init.signal?.aborted) throw init.signal.reason;
+    }
+  } else {
+    for (const attempt of attempts) {
+      try {
+        return await attempt(init);
+      } catch (error) {
+        rethrowIfRequestWasAborted(init, error);
       }
     }
-  } catch (e) {
-    rethrowIfRequestWasAborted(init, e);
   }
 
-  // 4. AllOrigins Raw Endpoint
+  throw new Error('Unable to fetch via CORS proxies.', { cause: primaryError });
+}
+
+async function fetchFirstValidProxy(attempts, init) {
+  const controllers = attempts.map(() => new AbortController());
+  let winner = -1;
+  let start = Promise.resolve();
+  const requests = attempts.map((attempt, index) => {
+    const controller = controllers[index];
+    const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+    const request = start.then(async () => {
+      signal.throwIfAborted();
+      const data = await attempt({ ...init, signal });
+      signal.throwIfAborted();
+      if (winner === -1) winner = index;
+      return data;
+    });
+
+    if (index < attempts.length - 1) {
+      // Let a slow route finish within the connector's deadline while trying the next one.
+      start = start.then(() => {
+        let timer;
+        const delay = new Promise(resolve => { timer = setTimeout(resolve, index === 0 ? 10000 : 4000); });
+        return Promise.race([request.catch(() => {}), delay]).finally(() => clearTimeout(timer));
+      });
+    }
+    return request;
+  });
+
   try {
-    const res = await fetch(`https://api.allorigins.win/raw?url=${encodedUrl}`, init);
-    if (res && res.ok) return res;
-  } catch (e) {
-    rethrowIfRequestWasAborted(init, e);
+    return await Promise.any(requests);
+  } finally {
+    controllers.forEach((controller, index) => {
+      if (index !== winner) controller.abort();
+    });
   }
-
-  // 5. Codetabs proxy fallback
-  try {
-    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodedUrl}`, init);
-    if (res && res.ok) return res;
-  } catch (e) {
-    rethrowIfRequestWasAborted(init, e);
-  }
-
-  throw new Error(`Unable to fetch ${url} via CORS proxies.`);
 }

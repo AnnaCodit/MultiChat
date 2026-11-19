@@ -9,12 +9,16 @@ function createConnector(fetcher) {
   const connector = new KickConnector(message => messages.push(message), (...args) => statuses.push(args), {
     fetcher,
     createWebSocket: () => {
-      const socket = { sent: [], send(value) { this.sent.push(value); }, close() { this.closed = true; } };
+      const socket = { readyState: 1, sent: [], send(value) { this.sent.push(value); }, close() { this.closed = true; } };
       sockets.push(socket);
       return socket;
     }
   });
   return { connector, sockets, messages, statuses };
+}
+
+function emit(socket, event, channel, data) {
+  socket.onmessage({ data: JSON.stringify({ event, channel, data }) });
 }
 
 for (const stage of ['headers', 'body']) {
@@ -58,6 +62,7 @@ test('Kick subscribes to the resolved room and ignores callbacks from a replaced
   const old = sockets[0];
   const callbacks = { open: old.onopen, message: old.onmessage, close: old.onclose, error: old.onerror };
   old.onopen();
+  emit(old, 'pusher:connection_established');
   assert.equal(JSON.parse(old.sent[0]).data.channel, 'chatrooms.111.v2');
   await connector.connect('newchannel');
   const statusCount = statuses.length;
@@ -72,7 +77,57 @@ test('Kick subscribes to the resolved room and ignores callbacks from a replaced
   assert.equal(connector.reconnectTimer, null);
   assert.equal(connector.pingInterval, null);
   sockets[1].onopen();
+  emit(sockets[1], 'pusher:connection_established');
   assert.equal(JSON.parse(sockets[1].sent[0]).data.channel, 'chatrooms.222.v2');
+});
+
+test('Kick confirms the expected room before going online and reconnects if pong is missing', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const { connector, sockets, statuses, messages } = createConnector(async () => ({ ok: true, json: async () => ({ chatroom: { id: 111 } }) }));
+  t.after(() => connector.disconnect());
+  await connector.connect('channel');
+  const socket = sockets[0];
+  socket.onopen();
+  assert.equal(socket.sent.length, 0);
+  emit(socket, 'pusher:connection_established');
+  emit(socket, 'pusher_internal:subscription_succeeded', 'chatrooms.222.v2');
+  assert.equal(statuses.at(-1)[1], false);
+  emit(socket, 'pusher_internal:subscription_succeeded', 'chatrooms.111.v2');
+  assert.equal(statuses.at(-1)[1], true);
+  emit(socket, 'App\\Events\\ChatMessageEvent', 'chatrooms.111.v2', { content: 'Hello' });
+  assert.equal(messages.at(-1).text, 'Hello');
+
+  t.mock.timers.tick(30000);
+  assert.equal(JSON.parse(socket.sent.at(-1)).event, 'pusher:ping');
+  emit(socket, 'pusher:pong');
+  t.mock.timers.tick(10000);
+  assert.equal(connector.ws, socket);
+
+  t.mock.timers.tick(20000);
+  t.mock.timers.tick(10000);
+  assert.equal(socket.closed, true);
+  assert.equal(statuses.at(-1)[1], false);
+  t.mock.timers.tick(5000);
+  assert.equal(sockets.length, 2);
+});
+
+test('Kick reloads the room once if the subscription times out', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let lookups = 0;
+  const { connector, sockets } = createConnector(async () => ({ ok: true, json: async () => ({ chatroom: { id: ++lookups } }) }));
+  t.after(() => connector.disconnect());
+  await connector.connect('channel');
+  emit(sockets[0], 'pusher:connection_established');
+  t.mock.timers.tick(10000);
+  t.mock.timers.tick(5000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(lookups, 2);
+  emit(sockets[1], 'pusher:connection_established');
+  assert.equal(JSON.parse(sockets[1].sent[0]).data.channel, 'chatrooms.2.v2');
+  t.mock.timers.tick(10000);
+  t.mock.timers.tick(10000);
+  assert.equal(lookups, 2);
+  assert.equal(sockets.length, 3);
 });
 
 test('Kick aborted lookup does not fall through to another API request', async () => {
@@ -181,7 +236,7 @@ test('Kick connector rotates Pusher key on 4001 refusal and handles pusher:ping'
 
   // Simulate Pusher error 4001
   socket1.onmessage({ data: JSON.stringify({ event: 'pusher:error', data: { code: 4001, message: 'App key first-key not in this cluster' } }) });
-  socket1.onclose({ code: 4001, reason: 'Refused' });
+  assert.equal(socket1.closed, true);
 
   // Fast forward the reconnect timer
   await new Promise(resolve => setTimeout(resolve, 1100));
@@ -220,7 +275,6 @@ test('Kick connector cycles through multiple fallback keys without getting stuck
   // Failure 1: key-A fails
   sockets[0].onopen();
   sockets[0].onmessage({ data: JSON.stringify({ event: 'pusher:error', data: { code: 4001, message: 'not in this cluster' } }) });
-  sockets[0].onclose({ code: 4001, reason: 'Refused' });
   await new Promise(r => setTimeout(r, 1100));
 
   assert.equal(createdUrls.length, 2);
@@ -229,7 +283,6 @@ test('Kick connector cycles through multiple fallback keys without getting stuck
   // Failure 2: key-B fails with non-JSON string error payload
   sockets[1].onopen();
   sockets[1].onmessage({ data: JSON.stringify({ event: 'pusher:error', data: 'App key key-B not in this cluster' }) });
-  sockets[1].onclose({ code: 4001, reason: 'Refused' });
   await new Promise(r => setTimeout(r, 1100));
 
   assert.equal(createdUrls.length, 3);

@@ -6,6 +6,8 @@ const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const CONNECT_TIMEOUT_SECONDS = 7;
 const REQUEST_TIMEOUT_SECONDS = 25;
+const CHAT_REQUEST_TIMEOUT_MS = 8000;
+const CHAT_OPERATIONS = ['kick-room', 'youtube-live', 'youtube-chat'];
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const PROXY_LOG_FILE = __DIR__ . '/proxy.log';
 const UPSTREAM_PROXY_CONFIG_FILE = __DIR__ . '/proxy.settings.php';
@@ -222,9 +224,10 @@ function applyUpstreamProxy($curl, string $url): ?array
     return $config;
 }
 
-function fail(int $status, string $publicMessage, string $logMessage = ''): void
+function fail(int $status, string $publicMessage, string $logMessage = '', string $code = 'proxy_unavailable'): void
 {
     http_response_code($status);
+    header('X-Multichat-Error: ' . $code);
 
     if ($logMessage !== '') {
         logProxy($logMessage);
@@ -246,13 +249,13 @@ function applyCorsHeaders(): void
     }
 
     if (!in_array($origin, ALLOWED_ORIGINS, true)) {
-        fail(403, 'This origin is not allowed.', 'Rejected origin: ' . $origin);
+        fail(403, 'This origin is not allowed.', 'Rejected origin: ' . $origin, 'origin_not_allowed');
     }
 
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Access-Control-Allow-Methods: GET, OPTIONS');
     header('Access-Control-Allow-Headers: Accept, Content-Type');
-    header('Access-Control-Expose-Headers: X-Multichat-Proxy, X-Multichat-Request-Id, X-Multichat-Log-Status');
+    header('Access-Control-Expose-Headers: X-Multichat-Proxy, X-Multichat-Request-Id, X-Multichat-Error, X-Multichat-Log-Status, Retry-After');
     header('Access-Control-Max-Age: 86400');
     header('Vary: Origin');
 }
@@ -290,6 +293,72 @@ function isAllowedUrl(string $url): bool
 
     return isAllowedHost($parts['host'])
         && (!isset($parts['port']) || $parts['port'] === 443);
+}
+
+function parseTargetQuery(?string $query): ?array
+{
+    if ($query === null) return [];
+
+    $parameters = [];
+    foreach (explode('&', $query) as $parameter) {
+        $pair = explode('=', $parameter, 2);
+        $name = $pair[0];
+        if (count($pair) !== 2 || preg_match('/^[A-Za-z_]+$/D', $name) !== 1 || isset($parameters[$name])) {
+            return null;
+        }
+        $parameters[$name] = rawurldecode($pair[1]);
+    }
+    return $parameters;
+}
+
+function isAllowedYouTubeLiveTarget(string $path, ?string $query, bool $redirect): bool
+{
+    $channelPath = '~^/(?:@[\p{L}\p{M}\p{N}_.·-]+|channel/UC[A-Za-z0-9_-]{22}|(?:c|user)/[\p{L}\p{M}\p{N}_.·-]+)';
+    if (!$redirect) {
+        return $query === null && preg_match($channelPath . '/live/?\z~u', $path) === 1;
+    }
+
+    $parameters = parseTargetQuery($query);
+    if ($parameters === null) return false;
+    foreach (['app', 'feature', 'si'] as $name) {
+        if (isset($parameters[$name]) && preg_match('/^[A-Za-z0-9_.-]{1,128}$/D', $parameters[$name]) !== 1) {
+            return false;
+        }
+        unset($parameters[$name]);
+    }
+
+    if ($path === '/watch') {
+        return count($parameters) === 1 && preg_match('/^[A-Za-z0-9_-]{11}$/D', $parameters['v'] ?? '') === 1;
+    }
+    return $parameters === [] && (preg_match('~^/live/[A-Za-z0-9_-]{11}/?$~D', $path) === 1
+        || preg_match($channelPath . '(?:/live)?/?\z~u', $path) === 1);
+}
+
+function isAllowedOperationUrl(string $url, string $operation, bool $redirect = false): bool
+{
+    if (!isAllowedUrl($url) || strpos($url, '\\') !== false || preg_match('/[\x00-\x20\x7f]/', $url) === 1) return false;
+
+    $parts = parse_url($url);
+    if (isset($parts['fragment'])) return false;
+
+    if ($operation === 'kick-room') return getKickChannelSlug($url) !== null;
+
+    $host = strtolower($parts['host']);
+    if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com'], true)) return false;
+
+    $path = $parts['path'] ?? '';
+    $query = $parts['query'] ?? null;
+    if ($operation === 'youtube-live') {
+        return stripos($path, '%2f') === false && isAllowedYouTubeLiveTarget(rawurldecode($path), $query, $redirect);
+    }
+    if ($operation !== 'youtube-chat' || $path !== '/live_chat') return false;
+
+    $parameters = parseTargetQuery($query);
+    if ($parameters === null || count($parameters) !== 2 || ($parameters['is_popout'] ?? '') !== '1') {
+        return false;
+    }
+    if (isset($parameters['v'])) return preg_match('/^[A-Za-z0-9_-]{11}$/D', $parameters['v']) === 1;
+    return preg_match('~^[A-Za-z0-9_.%+/=-]{1,4096}$~D', $parameters['continuation'] ?? '') === 1;
 }
 
 function resolveRedirectUrl(string $baseUrl, string $location): ?string
@@ -335,26 +404,32 @@ function getUpstreamHeaders(string $url): array
     return $headers;
 }
 
-function fetchUrlOnce(string $url, int $ipResolve): array
+function remainingUpstreamTimeMs(?float $deadlineMs): int
 {
+    if ($deadlineMs === null) return REQUEST_TIMEOUT_SECONDS * 1000;
+    return max(0, (int) floor($deadlineMs - hrtime(true) / 1000000));
+}
+
+function fetchUrlOnce(string $url, int $ipResolve, ?float $deadlineMs = null): array
+{
+    if (remainingUpstreamTimeMs($deadlineMs) === 0) return ['success' => false, 'errno' => CURLE_OPERATION_TIMEDOUT];
+
     $body = '';
     $location = null;
     $contentType = '';
+    $retryAfter = null;
     $tooLarge = false;
     $curl = curl_init($url);
 
     if ($curl === false) {
         return [
             'success' => false,
-            'error' => 'Unable to initialize cURL',
             'errno' => -1,
         ];
     }
 
     curl_setopt_array($curl, [
         CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_CONNECTTIMEOUT => CONNECT_TIMEOUT_SECONDS,
-        CURLOPT_TIMEOUT => REQUEST_TIMEOUT_SECONDS,
         CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
         CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
         CURLOPT_ENCODING => '',
@@ -363,11 +438,17 @@ function fetchUrlOnce(string $url, int $ipResolve): array
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/138.0.0.0 Safari/537.36',
         CURLOPT_HTTPHEADER => getUpstreamHeaders($url),
-        CURLOPT_HEADERFUNCTION => static function ($curlHandle, string $header) use (&$location, &$contentType): int {
-            if (stripos($header, 'Location:') === 0) {
+        CURLOPT_HEADERFUNCTION => static function ($curlHandle, string $header) use (&$location, &$contentType, &$retryAfter): int {
+            if (stripos($header, 'HTTP/') === 0) {
+                $location = null;
+                $contentType = '';
+                $retryAfter = null;
+            } elseif (stripos($header, 'Location:') === 0) {
                 $location = trim(substr($header, strlen('Location:')));
             } elseif (stripos($header, 'Content-Type:') === 0) {
                 $contentType = trim(substr($header, strlen('Content-Type:')));
+            } elseif (stripos($header, 'Retry-After:') === 0) {
+                $retryAfter = trim(substr($header, strlen('Retry-After:')));
             }
 
             return strlen($header);
@@ -384,12 +465,20 @@ function fetchUrlOnce(string $url, int $ipResolve): array
     ]);
     $upstreamProxy = applyUpstreamProxy($curl, $url);
 
+    // Configuration loading and each redirect consume the same request budget.
+    $remainingMs = remainingUpstreamTimeMs($deadlineMs);
+    if ($remainingMs === 0) {
+        curl_close($curl);
+        return ['success' => false, 'errno' => CURLE_OPERATION_TIMEDOUT];
+    }
+    curl_setopt($curl, CURLOPT_CONNECTTIMEOUT_MS, min(CONNECT_TIMEOUT_SECONDS * 1000, $remainingMs));
+    curl_setopt($curl, CURLOPT_TIMEOUT_MS, $remainingMs);
+
     $startedAt = microtime(true);
     $success = curl_exec($curl);
     $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
     $primaryIp = (string) curl_getinfo($curl, CURLINFO_PRIMARY_IP);
     $errorNumber = curl_errno($curl);
-    $error = curl_error($curl);
     $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
     curl_close($curl);
 
@@ -398,9 +487,9 @@ function fetchUrlOnce(string $url, int $ipResolve): array
         'status' => $status,
         'location' => $location,
         'contentType' => $contentType,
+        'retryAfter' => $retryAfter,
         'body' => $body,
         'tooLarge' => $tooLarge,
-        'error' => $error,
         'errno' => $errorNumber,
         'primaryIp' => $primaryIp,
         'durationMs' => $durationMs,
@@ -423,25 +512,44 @@ function isRetryableNetworkFailure(array $result): bool
     ], true);
 }
 
-function fetchUrl(string $url): array
+function fetchUrl(string $url, ?float $deadlineMs = null): array
 {
     // Shared hosting commonly advertises unusable IPv6. Try IPv4 first, then
     // IPv6 only for connection-level failures so HTTP errors are not duplicated.
-    $result = fetchUrlOnce($url, CURL_IPRESOLVE_V4);
-    if (!isRetryableNetworkFailure($result)) {
+    $result = fetchUrlOnce($url, CURL_IPRESOLVE_V4, $deadlineMs);
+    if (!isRetryableNetworkFailure($result) || remainingUpstreamTimeMs($deadlineMs) === 0) {
         return $result;
     }
 
     logProxy(sprintf(
-        'IPv4 request failed for %s%s (cURL %d: %s, %d ms); trying IPv6.',
+        'IPv4 request failed for %s%s (cURL %d, %d ms); trying IPv6.',
         urlForLog($url),
         isset($result['upstreamProxyType']) ? ' via upstream ' . $result['upstreamProxyType'] : '',
         (int) ($result['errno'] ?? 0),
-        (string) ($result['error'] ?? 'unknown error'),
         (int) ($result['durationMs'] ?? 0)
     ));
 
-    return fetchUrlOnce($url, CURL_IPRESOLVE_V6);
+    return fetchUrlOnce($url, CURL_IPRESOLVE_V6, $deadlineMs);
+}
+
+function upstreamHttpError(int $status): array
+{
+    switch ($status) {
+        case 401:
+        case 403:
+            return [502, 'upstream_blocked'];
+        case 404:
+            return [404, 'upstream_not_found'];
+        case 408:
+        case 504:
+            return [504, 'upstream_timeout'];
+        case 429:
+            return [429, 'upstream_rate_limited'];
+        case 503:
+            return [503, 'upstream_unavailable'];
+        default:
+            return [502, 'upstream_unavailable'];
+    }
 }
 
 function getKickChannelSlug(string $url): ?string
@@ -532,19 +640,33 @@ if ($requestMethod === 'OPTIONS') {
 
 if ($requestMethod !== 'GET') {
     header('Allow: GET, OPTIONS');
-    fail(405, 'Only GET requests are supported.');
+    fail(405, 'Only GET requests are supported.', '', 'invalid_request');
 }
 
 if (!function_exists('curl_init')) {
     fail(500, 'PHP cURL extension is required.', 'The cURL extension is not installed.');
 }
 
-$url = isset($_GET['url']) && is_string($_GET['url']) ? trim($_GET['url']) : '';
-if ($url === '' || !isAllowedUrl($url)) {
-    fail(400, 'The target URL is not allowed.', 'Rejected URL: ' . urlForLog($url));
+// Keep supporting the URL-only route while the frontend and proxy roll out separately.
+$operation = $_GET['operation'] ?? null;
+if ($operation !== null && !in_array($operation, CHAT_OPERATIONS, true)) {
+    fail(400, 'The proxy operation is not supported.', 'The request specified an unsupported operation.', 'invalid_request');
+}
+$refresh = $_GET['refresh'] ?? null;
+if ($operation !== null && $refresh !== null && ($operation !== 'kick-room' || $refresh !== '1')) {
+    fail(400, 'The cache refresh parameter is not supported.', 'The request specified an unsupported cache refresh.', 'invalid_request');
 }
 
-$cachedKickChannel = kickChannelCache($url);
+$url = isset($_GET['url']) && is_string($_GET['url']) ? trim($_GET['url']) : '';
+$allowed = $operation === null ? isAllowedUrl($url) : isAllowedOperationUrl($url, $operation);
+if (!$allowed) {
+    $target = $operation === null ? urlForLog($url) : $operation;
+    fail(400, 'The target URL is not allowed.', 'Rejected target for ' . $target, 'invalid_request');
+}
+
+$deadlineMs = $operation === null ? null : hrtime(true) / 1000000 + CHAT_REQUEST_TIMEOUT_MS;
+$forceRefresh = $operation === 'kick-room' && $refresh === '1';
+$cachedKickChannel = $forceRefresh ? null : kickChannelCache($url);
 if ($cachedKickChannel !== null) {
     header('X-Multichat-Proxy: kick-cache');
     header('Content-Type: application/json; charset=utf-8');
@@ -555,31 +677,37 @@ if ($cachedKickChannel !== null) {
 $currentUrl = $url;
 
 for ($redirectCount = 0; $redirectCount <= MAX_REDIRECTS; $redirectCount++) {
-    $result = fetchUrl($currentUrl);
+    $result = fetchUrl($currentUrl, $deadlineMs);
+    if (isset($result['upstreamProxyType'])) {
+        header('X-Multichat-Proxy: upstream-' . $result['upstreamProxyType']);
+    }
 
     if (($result['tooLarge'] ?? false) === true) {
-        fail(502, 'The upstream response is too large.', 'Response exceeded the size limit for ' . $currentUrl);
+        fail(502, 'The upstream response is too large.', 'Response exceeded the size limit for ' . urlForLog($currentUrl), 'response_too_large');
     }
 
     if (($result['success'] ?? false) !== true) {
-        fail(502, 'Unable to fetch the target URL.', sprintf(
-            'cURL failed for %s%s using IP mode %d (cURL %d: %s, IP: %s, %d ms)',
+        $timedOut = $operation !== null && (int) ($result['errno'] ?? 0) === CURLE_OPERATION_TIMEDOUT;
+        fail($timedOut ? 504 : 502, 'Unable to fetch the target URL.', sprintf(
+            'cURL failed for %s%s using IP mode %d (cURL %d, IP: %s, %d ms)',
             urlForLog($currentUrl),
             isset($result['upstreamProxyType']) ? ' via upstream ' . $result['upstreamProxyType'] : '',
             (int) ($result['ipResolve'] ?? 0),
             (int) ($result['errno'] ?? 0),
-            (string) ($result['error'] ?? 'unknown error'),
             (string) ($result['primaryIp'] ?? 'none'),
             (int) ($result['durationMs'] ?? 0)
-        ));
+        ), $timedOut ? 'upstream_timeout' : 'upstream_unavailable');
     }
 
     $status = (int) ($result['status'] ?? 0);
     $location = $result['location'] ?? null;
     if (in_array($status, [301, 302, 303, 307, 308], true) && is_string($location)) {
         $redirectUrl = resolveRedirectUrl($currentUrl, $location);
-        if ($redirectUrl === null || !isAllowedUrl($redirectUrl)) {
-            fail(502, 'The upstream server returned an unsupported redirect.', 'Rejected redirect from ' . urlForLog($currentUrl) . ' to ' . urlForLog($location));
+        $allowed = $redirectUrl !== null && ($operation === null
+            ? isAllowedUrl($redirectUrl)
+            : isAllowedOperationUrl($redirectUrl, $operation, true));
+        if (!$allowed) {
+            fail(502, 'The upstream server returned an unsupported redirect.', 'Rejected redirect from ' . urlForLog($currentUrl), 'upstream_redirect');
         }
 
         $currentUrl = $redirectUrl;
@@ -587,28 +715,30 @@ for ($redirectCount = 0; $redirectCount <= MAX_REDIRECTS; $redirectCount++) {
     }
 
     if ($status < 200 || $status >= 300) {
-        fail(502, 'The upstream server returned HTTP ' . $status . '.', sprintf(
+        [$proxyStatus, $code] = $operation === null ? [502, 'upstream_unavailable'] : upstreamHttpError($status);
+        $retryAfter = $result['retryAfter'] ?? null;
+        if (in_array($proxyStatus, [429, 503], true) && is_string($retryAfter)
+            && preg_match('/^(?:[0-9]{1,10}|[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT)$/D', $retryAfter) === 1) {
+            header('Retry-After: ' . $retryAfter);
+        }
+        fail($proxyStatus, 'The upstream server returned HTTP ' . $status . '.', sprintf(
             'Upstream HTTP %d for %s (IP: %s, %d ms)',
             $status,
             urlForLog($currentUrl),
             (string) ($result['primaryIp'] ?? 'none'),
             (int) ($result['durationMs'] ?? 0)
-        ));
+        ), $code);
     }
 
     if (preg_match('~^application/(?:[a-z0-9.+-]+\\+)?json\\b~i', (string) ($result['contentType'] ?? '')) === 1) {
         header('Content-Type: application/json; charset=utf-8');
     }
 
-    if (isset($result['upstreamProxyType'])) {
-        header('X-Multichat-Proxy: upstream-' . $result['upstreamProxyType']);
-    }
-
     $body = (string) ($result['body'] ?? '');
     $kickSlug = getKickChannelSlug($url);
     if ($kickSlug !== null) {
         if (!isKickChannelResponse($body, $kickSlug)) {
-            fail(502, 'Kick returned an invalid channel response.', 'Invalid Kick metadata for ' . $kickSlug);
+            fail(502, 'Kick returned an invalid channel response.', 'Invalid Kick metadata for ' . $kickSlug, 'upstream_invalid_response');
         }
         kickChannelCache($url, $body);
         logProxy('Resolved Kick channel: ' . $kickSlug);
@@ -617,4 +747,4 @@ for ($redirectCount = 0; $redirectCount <= MAX_REDIRECTS; $redirectCount++) {
     exit;
 }
 
-fail(502, 'The upstream server returned too many redirects.', 'Redirect limit exceeded for ' . urlForLog($url));
+fail(502, 'The upstream server returned too many redirects.', 'Redirect limit exceeded for ' . urlForLog($url), 'upstream_redirect');

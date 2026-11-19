@@ -16,11 +16,11 @@ class YoutubeConnector {
   constructor(onMessageCallback, onStatusCallback, options = {}) {
     this.onMessage = onMessageCallback;
     this.onStatus = onStatusCallback;
-    this.fetcher = options.fetcher || ((url, init) => fetchWithCorsProxy(url, init));
+    this.fetcher = options.fetcher;
     this.setTimer = options.setTimer || ((callback, delay) => setTimeout(callback, delay));
     this.clearTimer = options.clearTimer || ((timer) => clearTimeout(timer));
     this.logger = options.logger || console;
-    this.requestTimeoutMs = options.requestTimeoutMs || 20000;
+    this.requestTimeoutMs = options.requestTimeoutMs || 30000;
     this.minimumPollIntervalMs = Number.isFinite(options.minimumPollIntervalMs)
       ? Math.max(1000, options.minimumPollIntervalMs)
       : YOUTUBE_CONNECTOR_CONFIG.minimumChatPollIntervalMs;
@@ -28,6 +28,7 @@ class YoutubeConnector {
     this.channelOrVideo = '';
     this.currentVideoId = null;
     this.isDirectVideo = false;
+    this.ambiguousVideoId = null;
     this.pollTimer = null;
     this.retryTimer = null;
     this.abortController = null;
@@ -51,12 +52,13 @@ class YoutubeConnector {
     this.abortController = new AbortController();
     const connectionId = this.connectionId;
     const videoId = this.extractVideoId(this.channelOrVideo);
-    this.isDirectVideo = Boolean(videoId);
+    this.ambiguousVideoId = videoId === this.channelOrVideo ? videoId : null;
+    this.isDirectVideo = Boolean(videoId && !this.ambiguousVideoId);
 
-    this.logger.info(`[YouTube Connector] Connecting to: ${this.channelOrVideo}`);
+    this.logger.info(`[YouTube Connector] Connecting by ${this.isDirectVideo ? 'video URL' : 'channel input'}.`);
     this.onStatus('youtube', false, 'Поиск трансляции YouTube...');
 
-    if (videoId) {
+    if (this.isDirectVideo) {
       void this.startChatPollingByVideoId(videoId, connectionId);
     } else {
       void this.resolveChannelLiveVideo(this.channelOrVideo, connectionId);
@@ -116,37 +118,60 @@ class YoutubeConnector {
 
   async resolveChannelLiveVideo(channelInput, connectionId) {
     if (!this.isConnectionActive(connectionId)) return;
+    this.isDirectVideo = false;
 
+    let videoId;
     try {
       this.onStatus('youtube', false, 'Проверка Live стрима...');
       const url = this.buildChannelLiveUrl(channelInput);
-      const html = await this.fetchText(url, connectionId);
+      videoId = await this.fetchText(url, connectionId, 'youtube-live', html => this.readChannelLivePage(html));
       if (!this.isConnectionActive(connectionId)) return;
-
-      const videoId = this.extractLiveVideoIdFromHtml(html);
-      if (!videoId) {
-        const error = new Error('Активная трансляция не найдена');
-        error.code = 'STREAM_OFFLINE';
-        throw error;
-      }
-
-      this.logger.info(`[YouTube Connector] Found live video ID: ${videoId}`);
-      await this.startChatPollingByVideoId(videoId, connectionId);
     } catch (error) {
       if (this.isAbortError(error) || !this.isConnectionActive(connectionId)) return;
 
-      this.logger.warn('[YouTube Connector] Unable to resolve live stream:', error);
-      this.onStatus('youtube', false, 'Офлайн (ожидание стрима)');
+      this.logRequestFailure('Unable to resolve live stream', error);
+      if (this.ambiguousVideoId) {
+        // Bare Video IDs remain supported when the input cannot be resolved as a channel.
+        this.isDirectVideo = true;
+        await this.startChatPollingByVideoId(this.ambiguousVideoId, connectionId);
+        return;
+      }
+      const formatError = (error.cause || error).code === 'LIVE_RESPONSE_INVALID';
+      this.onStatus('youtube', false, formatError ? 'Не удалось распознать ответ YouTube' : 'Ошибка поиска эфира YouTube');
       this.scheduleChannelRetry(connectionId, 30000);
+      return;
     }
+
+    this.ambiguousVideoId = null;
+    if (videoId) {
+      this.logger.info(`[YouTube Connector] Found live video ID: ${videoId}`);
+      await this.startChatPollingByVideoId(videoId, connectionId);
+      return;
+    }
+    this.onStatus('youtube', false, 'Офлайн (ожидание стрима)');
+    this.scheduleChannelRetry(connectionId, 30000);
   }
 
-  extractLiveVideoIdFromHtml(html) {
+  readChannelLivePage(html) {
     const playerResponse = this.extractAssignedJson(html, [
       'window["ytInitialPlayerResponse"]',
       'var ytInitialPlayerResponse',
       'ytInitialPlayerResponse'
     ]);
+    const broadcast = playerResponse?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+    if (playerResponse?.playabilityStatus?.status === 'LIVE_STREAM_OFFLINE'
+      || playerResponse?.videoDetails?.isLiveContent === false || broadcast?.endTimestamp) {
+      return null;
+    }
+
+    const videoId = this.extractLiveVideoIdFromHtml(html, playerResponse);
+    if (videoId) return videoId;
+    if (this.extractYtInitialData(html)?.metadata?.channelMetadataRenderer) return null;
+
+    throw Object.assign(new Error('Не удалось распознать страницу канала YouTube'), { code: 'LIVE_RESPONSE_INVALID' });
+  }
+
+  extractLiveVideoIdFromHtml(html, playerResponse) {
     const playerVideoId = playerResponse?.videoDetails?.videoId;
     if (/^[a-zA-Z0-9_-]{11}$/.test(playerVideoId || '')) {
       return playerVideoId;
@@ -168,10 +193,10 @@ class YoutubeConnector {
 
     if (this.currentVideoId !== videoId) {
       this.currentVideoId = videoId;
-      this.continuationToken = null;
       this.seenMessageIds.clear();
     }
 
+    this.continuationToken = null;
     this.consecutiveErrors = 0;
     this.isOnline = false;
     this.onStatus('youtube', false, `Подключение к чату (${videoId})...`);
@@ -186,14 +211,14 @@ class YoutubeConnector {
       if (!this.isConnectionActive(connectionId)) return;
 
       this.consecutiveErrors = 0;
-      if (!this.isOnline) {
-        this.isOnline = true;
-        this.onStatus('youtube', true, `Онлайн (Video ID: ${videoId})`);
-      }
-
+      if (this.isDirectVideo) this.ambiguousVideoId = null;
       if (result.ended) {
         this.handleChatEnded(connectionId);
         return;
+      }
+      if (!this.isOnline) {
+        this.isOnline = true;
+        this.onStatus('youtube', true, `Онлайн (Video ID: ${videoId})`);
       }
 
       this.schedulePoll(videoId, connectionId, result.timeoutMs);
@@ -201,21 +226,22 @@ class YoutubeConnector {
       if (this.isAbortError(error) || !this.isConnectionActive(connectionId)) return;
 
       this.consecutiveErrors += 1;
-      const chatUnavailable = error?.code === 'CHAT_UNAVAILABLE';
+      const upstreamNotFound = error.cause?.proxyCode === 'upstream_not_found';
+      const chatUnavailable = error.code === 'CHAT_UNAVAILABLE' || (upstreamNotFound && !this.continuationToken);
+      const invalidChatResponse = (error.cause || error).code === 'CHAT_RESPONSE_INVALID' || upstreamNotFound;
       const retryDelay = chatUnavailable
         ? 30000
         : Math.min(30000, 1000 * (2 ** Math.min(this.consecutiveErrors - 1, 5)));
-      this.logger.warn(
-        `[YouTube Connector] Polling failed; retrying in ${retryDelay}ms:`,
-        error
-      );
+      this.logRequestFailure('Polling failed', error);
 
-      if (chatUnavailable && !this.isDirectVideo) {
+      const retryAmbiguousChannel = this.ambiguousVideoId && (chatUnavailable || this.consecutiveErrors >= 3);
+      const rediscoverChannel = !this.isDirectVideo && (chatUnavailable || this.consecutiveErrors >= 5
+        || (invalidChatResponse && this.consecutiveErrors >= 3));
+      if (retryAmbiguousChannel || rediscoverChannel) {
         this.isOnline = false;
-        this.currentVideoId = null;
         this.continuationToken = null;
-        this.onStatus('youtube', false, 'Офлайн (ожидание стрима)');
-        this.scheduleChannelRetry(connectionId, retryDelay);
+        this.onStatus('youtube', false, chatUnavailable ? 'Чат недоступен (повтор поиска...)' : 'Ошибка чата (повтор поиска...)');
+        this.scheduleChannelRetry(connectionId, 30000);
         return;
       }
 
@@ -224,9 +250,9 @@ class YoutubeConnector {
         this.onStatus('youtube', false, 'Ошибка чата (переподключение...)');
       }
 
-      // A fresh page produces a new continuation after repeated transport or
-      // parsing failures. Message IDs prevent replaying the initial history.
-      if (this.consecutiveErrors >= 5) {
+      // A fresh page produces a new continuation after an invalid cursor or
+      // repeated transport failures. Keep message IDs when reopening the same video.
+      if (this.consecutiveErrors >= 5 || invalidChatResponse) {
         this.continuationToken = null;
       }
 
@@ -235,41 +261,68 @@ class YoutubeConnector {
   }
 
   async fetchChatStep(videoId, connectionId) {
-    const chatUrl = this.continuationToken
-      ? `https://www.youtube.com/live_chat?continuation=${encodeURIComponent(this.continuationToken)}&is_popout=1`
+    const token = this.continuationToken;
+    const chatUrl = token
+      ? `https://www.youtube.com/live_chat?continuation=${encodeURIComponent(token)}&is_popout=1`
       : `https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}&is_popout=1`;
 
-    const html = await this.fetchText(chatUrl, connectionId);
+    let partial;
+    let page;
+    try {
+      page = await this.fetchText(chatUrl, connectionId, 'youtube-chat', html => {
+        const data = this.extractYtInitialData(html);
+        const renderer = this.getLiveChatRenderer(data);
+        if (renderer) {
+          const progress = this.getChatProgress(renderer);
+          if (progress.continuation || progress.ended) return { data, progress };
+          partial ??= { data, progress };
+        } else if (!token && this.extractUnavailableMessage(data)) {
+          return { data };
+        }
+        throw Object.assign(new Error('Не удалось распознать ответ чата YouTube'), { code: 'CHAT_RESPONSE_INVALID' });
+      });
+    } catch (error) {
+      // Keep usable messages from a partial page only if every route failed.
+      if (partial && this.isConnectionActive(connectionId) && !this.isAbortError(error)) {
+        this.parseYtLiveChatData(partial.data, partial.progress);
+        this.continuationToken = token;
+      }
+      throw error;
+    }
     if (!this.isConnectionActive(connectionId)) {
       const error = new Error('YouTube connection was replaced');
       error.name = 'AbortError';
       throw error;
     }
 
-    const ytData = this.extractYtInitialData(html);
-    if (!ytData) {
-      throw new Error('ytInitialData не найден в ответе YouTube');
-    }
-
-    const renderer = this.getLiveChatRenderer(ytData);
-    if (!renderer) {
-      const message = this.extractUnavailableMessage(ytData) || 'Live Chat недоступен';
+    if (!page.progress) {
+      const message = this.extractUnavailableMessage(page.data) || 'Live Chat недоступен';
       const error = new Error(message);
       error.code = 'CHAT_UNAVAILABLE';
       throw error;
     }
 
-    return this.parseYtLiveChatData(ytData);
+    return this.parseYtLiveChatData(page.data, page.progress);
   }
 
-  parseYtLiveChatData(ytData) {
+  getChatProgress(renderer) {
+    const actions = Array.isArray(renderer.actions) ? renderer.actions : [];
+    const filterToken = this.extractLiveFilterContinuation(renderer);
+    const continuation = filterToken
+      ? { token: filterToken, timeoutMs: 1000 }
+      : this.extractContinuation(renderer.continuations);
+    const ended = actions.some(action => this.expandAction(action).some(nested => Boolean(nested?.closeLiveChatAction)));
+    return { actions, continuation, ended };
+  }
+
+  parseYtLiveChatData(ytData, progress) {
     const renderer = this.getLiveChatRenderer(ytData);
     if (!renderer) {
-      return { messageCount: 0, timeoutMs: 30000, ended: true };
+      return { messageCount: 0, timeoutMs: 30000, ended: false };
     }
 
+    const { actions, continuation, ended } = progress || this.getChatProgress(renderer);
     let messageCount = 0;
-    const actions = Array.isArray(renderer.actions) ? renderer.actions : [];
     actions.forEach((action) => {
       this.expandAction(action).forEach((nestedAction) => {
         const deletionEvent = this.parseDeletionAction(nestedAction);
@@ -296,17 +349,12 @@ class YoutubeConnector {
       });
     });
 
-    const liveFilterToken = this.extractLiveFilterContinuation(renderer);
-    const continuation = liveFilterToken
-      ? { token: liveFilterToken, timeoutMs: 1000 }
-      : this.extractContinuation(renderer.continuations);
     this.continuationToken = continuation?.token || null;
 
     return {
       messageCount,
       timeoutMs: continuation?.timeoutMs || 30000,
-      ended: !this.continuationToken
-        || actions.some((action) => Boolean(action?.closeLiveChatAction))
+      ended
     };
   }
 
@@ -347,11 +395,11 @@ class YoutubeConnector {
     // second. Titles are localized, so their stable ordering is used here.
     if (!Array.isArray(filterItems) || filterItems.length < 2) return null;
 
-    return filterItems[1]
+    const token = filterItems[1]
       ?.continuation
       ?.reloadContinuationData
-      ?.continuation
-      || null;
+      ?.continuation;
+    return typeof token === 'string' && token ? token : null;
   }
 
   getLiveChatRenderer(ytData) {
@@ -513,7 +561,7 @@ class YoutubeConnector {
     for (const continuationNode of continuations) {
       for (const key of continuationKeys) {
         const data = continuationNode?.[key];
-        if (!data?.continuation) continue;
+        if (typeof data?.continuation !== 'string' || !data.continuation) continue;
 
         const rawTimeout = Number(data.timeoutMs);
         const timeoutMs = Number.isFinite(rawTimeout)
@@ -613,7 +661,7 @@ class YoutubeConnector {
     return this.extractText(ytData?.contents?.messageRenderer?.text);
   }
 
-  async fetchText(url, connectionId) {
+  async fetchText(url, connectionId, operation, parsePage = html => html) {
     const sessionSignal = this.abortController?.signal;
     const requestController = new AbortController();
     let timeoutId;
@@ -645,16 +693,19 @@ class YoutubeConnector {
         interruption,
         (async () => {
           if (requestController.signal.aborted) return;
-          const response = await this.fetcher(url, {
+          const init = {
             method: 'GET',
             signal: requestController.signal,
             cache: 'no-store'
-          });
-          if (requestController.signal.aborted) return;
-          if (!response?.ok) {
-            throw new Error(`YouTube HTTP ${response?.status || 'error'}`);
-          }
-          return await response.text();
+          };
+          const readResponse = async response => {
+            if (requestController.signal.aborted) return;
+            if (!response?.ok) throw new Error(`YouTube HTTP ${response?.status || 'error'}`);
+            const html = await response.text();
+            if (!requestController.signal.aborted) return parsePage(html);
+          };
+          if (this.fetcher) return readResponse(await this.fetcher(url, init));
+          return fetchWithCorsProxy(url, init, { operation, readResponse });
         })()
       ]);
     } finally {
@@ -714,10 +765,19 @@ class YoutubeConnector {
     return error?.name === 'AbortError';
   }
 
+  logRequestFailure(context, error) {
+    const cause = error.cause || error;
+    this.logger.warn(`[YouTube Connector] ${context}.`, {
+      code: cause.proxyCode || cause.code || cause.name, status: cause.status, requestId: cause.requestId
+    });
+  }
+
   stopCurrentConnection(notifyStatus) {
     this.connectionId += 1;
     this.channelOrVideo = '';
     this.currentVideoId = null;
+    this.ambiguousVideoId = null;
+    this.isDirectVideo = false;
     this.continuationToken = null;
     this.consecutiveErrors = 0;
     this.isOnline = false;

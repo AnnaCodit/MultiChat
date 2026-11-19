@@ -4,6 +4,10 @@ const YoutubeConnector = require('../js/connectors/youtube.js');
 const initialFixture = require('./fixtures/youtube-initial-data.json');
 const continuationFixture = require('./fixtures/youtube-continuation-data.json');
 
+function page(data, variable = 'ytInitialData') {
+  return new Response(`<script>var ${variable} = ${JSON.stringify(data)};</script>`);
+}
+
 function createConnector() {
   const messages = [];
   const statuses = [];
@@ -125,7 +129,7 @@ test('continuation data is deduplicated and accepts replaceChatItemAction', () =
   assert.equal(messages[5].replyTo, 'name.with-dots');
 });
 
-test('missing continuation marks the chat as ended', () => {
+test('only an explicit close action marks the chat as ended', () => {
   const { connector } = createConnector();
   const result = connector.parseYtLiveChatData({
     continuationContents: {
@@ -135,9 +139,88 @@ test('missing continuation marks the chat as ended', () => {
     }
   });
 
-  assert.equal(result.ended, true);
+  assert.equal(result.ended, false);
   assert.equal(connector.continuationToken, null);
+  assert.equal(connector.parseYtLiveChatData({
+    continuationContents: { liveChatContinuation: { actions: [{ closeLiveChatAction: {} }] } }
+  }).ended, true);
 });
+
+test('YouTube reloads a direct video after an unknown continuation without repeating messages', async t => {
+  const urls = [];
+  const scheduled = [];
+  const { connector, messages, statuses } = createConnector();
+  t.after(() => connector.disconnect());
+  connector.setTimer = (callback, delay) => { scheduled.push({ callback, delay }); return 1; };
+  connector.fetcher = async url => {
+    urls.push(new URL(url));
+    if (urls.length !== 2) return page(initialFixture);
+    return page({ continuationContents: { liveChatContinuation: { continuations: [{ unknownFormat: {} }] } } });
+  };
+
+  connector.connect('https://youtu.be/gCNeDWCI0vo');
+  await new Promise(resolve => setImmediate(resolve));
+  scheduled.shift().callback();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(urls[1].searchParams.get('continuation'), 'live-chat-filter');
+  assert.equal(scheduled.length, 1);
+  assert.equal(connector.continuationToken, null);
+  assert.ok(!statuses.some(status => status.description === 'Чат завершён'));
+
+  scheduled.shift().callback();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(urls[2].searchParams.get('v'), 'gCNeDWCI0vo');
+  assert.equal(messages.length, 4);
+});
+
+test('YouTube returns to channel discovery when an old video never yields a usable continuation', async t => {
+  const urls = [];
+  const scheduled = [];
+  const { connector } = createConnector();
+  t.after(() => connector.disconnect());
+  connector.setTimer = (callback, delay) => { scheduled.push({ callback, delay }); return 1; };
+  connector.fetcher = async url => {
+    urls.push(new URL(url));
+    if (urls.at(-1).pathname.endsWith('/live')) {
+      return page({ videoDetails: { videoId: 'gCNeDWCI0vo', isLiveContent: true } }, 'ytInitialPlayerResponse');
+    }
+    return page({ contents: { liveChatRenderer: { continuations: [] } } });
+  };
+
+  connector.connect('@channel');
+  await new Promise(resolve => setImmediate(resolve));
+  for (let i = 0; i < 2; i += 1) {
+    scheduled.shift().callback();
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(urls.length, 4);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].delay, 30000);
+  scheduled.shift().callback();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(urls[4].pathname, '/@channel/live');
+});
+
+for (const inputKind of ['handle', 'video']) {
+  test(`YouTube resolves an ambiguous bare input as a ${inputKind}`, async t => {
+    const urls = [];
+    const { connector, messages } = createConnector();
+    t.after(() => connector.disconnect());
+    connector.fetcher = async url => {
+      urls.push(new URL(url));
+      if (urls.length > 1) return page(initialFixture);
+      return inputKind === 'handle'
+        ? page({ videoDetails: { videoId: 'gCNeDWCI0vo', isLiveContent: true } }, 'ytInitialPlayerResponse')
+        : new Response('', { status: 404 });
+    };
+
+    connector.connect('abcdefghijk');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(urls[0].pathname, '/@abcdefghijk/live');
+    assert.equal(urls[1].searchParams.get('v'), inputKind === 'handle' ? 'gCNeDWCI0vo' : 'abcdefghijk');
+    assert.equal(messages.length, 4);
+  });
+}
 
 test('chat polling uses the traffic-safe interval from JS configuration', () => {
   let scheduledDelay = null;
@@ -185,8 +268,8 @@ test('a stale request cannot publish messages after reconnect', async () => {
     }
   );
 
-  connector.connect('aaaaaaaaaaa');
-  connector.connect('bbbbbbbbbbb');
+  connector.connect('https://youtu.be/aaaaaaaaaaa');
+  connector.connect('https://youtu.be/bbbbbbbbbbb');
   releaseFirstRequest();
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));

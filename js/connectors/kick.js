@@ -12,16 +12,24 @@ const KICK_PUSHER_CONFIG = {
   version: '7.4.0'
 };
 
+const KICK_ROOM_CACHE_TTL_MS = 7 * 86400000;
+const KICK_ROOM_REFRESH_COOLDOWN_MS = 120000;
+
 class KickConnector {
   constructor(onMessageCallback, onStatusCallback, options = {}) {
     this.onMessage = onMessageCallback;
     this.onStatus = onStatusCallback;
-    this.fetcher = options.fetcher || ((url, init) => (typeof fetchWithCorsProxy === 'function' ? fetchWithCorsProxy(url, init) : fetch(url, init)));
+    this.fetcher = options.fetcher || (typeof fetchWithCorsProxy !== 'function' ? fetch : null);
     this.ws = null;
     this.channel = '';
     this.chatroomId = null;
+    this.chatroomExpiresAt = 0;
     this.reconnectTimer = null;
     this.pingInterval = null;
+    this.subscriptionTimer = null;
+    this.pongTimer = null;
+    this.nextRoomRefreshAt = 0;
+    this.reconnectAttempts = 0;
     this.connectionId = 0;
     this.abortController = null;
     this.createWebSocket = options.createWebSocket || (url => new WebSocket(url));
@@ -74,11 +82,11 @@ class KickConnector {
     this.evictWorkingKey();
     if (nextIndex >= keys.length) {
       this.currentKey = keys[0];
-      console.warn(`[Kick Connector] All known Pusher keys tried. Reverting to default: ${this.currentKey}`);
+      console.warn('[Kick Connector] All known Pusher keys tried. Reverting to default.');
       return false; // Cycled through all keys
     }
     this.currentKey = keys[nextIndex];
-    console.warn(`[Kick Connector] Switched Pusher app key to fallback: ${this.currentKey} (index ${nextIndex})`);
+    console.warn(`[Kick Connector] Switched Pusher app key to fallback (index ${nextIndex}).`);
     return true; // Advanced to next fallback key
   }
 
@@ -117,15 +125,25 @@ class KickConnector {
     }
     this.channel = cleanInput.toLowerCase();
     this.abortController = new AbortController();
-    const signal = this.abortController.signal;
+    await this.lookupAndConnect(connectionId);
+  }
 
+  async lookupAndConnect(connectionId, refresh = false) {
+    const { channel, abortController } = this;
     // Check localStorage cache first to avoid CORS proxy calls
-    const cacheKey = `kick_chatroom_id_${this.channel}`;
+    const cacheKey = `kick_chatroom_id_${channel}`;
     let cachedId = null;
     try {
       if (typeof localStorage !== 'undefined') {
-        const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-        if (cached && cached.expires > Date.now() && /^[1-9][0-9]*$/.test(String(cached.id))) cachedId = String(cached.id);
+        if (refresh) {
+          localStorage.removeItem(cacheKey);
+        } else {
+          const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+          if (cached && cached.expires > Date.now() && /^[1-9][0-9]*$/.test(String(cached.id))) {
+            cachedId = String(cached.id);
+            this.chatroomExpiresAt = cached.expires;
+          }
+        }
       }
     } catch (error) {
       console.warn('[Kick Connector] Unable to read chatroom cache:', error);
@@ -140,13 +158,14 @@ class KickConnector {
     console.log(`[Kick Connector] Resolving Kick chatroom ID for channel: ${this.channel}...`);
     this.onStatus('kick', false, 'Поиск канала Kick...');
 
-    const foundId = await this.resolveChatroomId(this.channel, signal);
+    const foundId = await this.resolveChatroomId(channel, abortController.signal, refresh);
     // Aborting fetch is not enough: a response may already be queued for parsing.
     if (!this.isConnectionActive(connectionId)) return;
     if (foundId) {
       this.chatroomId = foundId;
+      this.chatroomExpiresAt = Date.now() + KICK_ROOM_CACHE_TTL_MS;
       try {
-        if (typeof localStorage !== 'undefined') localStorage.setItem(cacheKey, JSON.stringify({ id: foundId, expires: Date.now() + 7 * 86400000 }));
+        if (typeof localStorage !== 'undefined') localStorage.setItem(cacheKey, JSON.stringify({ id: foundId, expires: this.chatroomExpiresAt }));
       } catch (error) {
         console.warn('[Kick Connector] Unable to save chatroom cache:', error);
       }
@@ -155,153 +174,164 @@ class KickConnector {
     } else {
       this.onStatus('kick', false, 'Не удалось загрузить канал Kick. Повтор через 15 секунд...');
       this.reconnectTimer = setTimeout(() => {
-        if (this.isConnectionActive(connectionId)) this.connect(this.channel);
+        if (this.isConnectionActive(connectionId)) void this.lookupAndConnect(connectionId, refresh);
       }, 15000);
     }
   }
 
-  async resolveChatroomId(channelName, signal) {
+  async resolveChatroomId(channelName, signal, refresh) {
     if (signal?.aborted) return null;
-    // 1. Primary metadata lookup through the v2 endpoint.
-    try {
-      const data = await this.fetchChannelData(channelName, 2, signal);
-      if (signal?.aborted) return null;
-      if (data?.chatroom?.id) return String(data.chatroom.id);
-    } catch (error) {
-      if (signal?.aborted) return null;
-      console.warn('[Kick Connector] Chatroom lookup failed:', error);
-    }
-
-    // 2. Compatibility fallback for installations where only v1 responds.
-    try {
-      const data = await this.fetchChannelData(channelName, 1, signal);
-      if (signal?.aborted) return null;
-      if (data?.chatroom?.id) return String(data.chatroom.id);
-    } catch (error) {
-      if (signal?.aborted) return null;
-      console.warn('[Kick Connector] Chatroom lookup failed:', error);
+    // Prefer v2 and retain v1 for installations where only v1 responds.
+    for (const version of [2, 1]) {
+      try {
+        const data = await this.fetchChannelData(channelName, version, signal, refresh);
+        if (signal?.aborted) return null;
+        return String(data.chatroom.id);
+      } catch (error) {
+        if (signal?.aborted) return null;
+        const cause = error.cause || error;
+        console.warn('[Kick Connector] Chatroom lookup failed.', {
+          version, code: cause.proxyCode || cause.code || cause.name, status: cause.status, requestId: cause.requestId
+        });
+      }
     }
 
     return null;
   }
 
-  async fetchChannelData(channel, version, signal) {
+  async fetchChannelData(channel, version, signal, refresh) {
     const requestSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(60000)])
       : AbortSignal.timeout(60000);
-    const response = await this.fetcher(`https://kick.com/api/v${version}/channels/${encodeURIComponent(channel)}`, { signal: requestSignal });
-    if (!response?.ok) throw new Error(`Kick HTTP ${response?.status || 'error'}`);
-    const data = await response.json();
-    if (!/^[1-9][0-9]*$/.test(String(data?.chatroom?.id || ''))) throw new Error('Invalid Kick chatroom response');
-    return data;
+    const url = `https://kick.com/api/v${version}/channels/${encodeURIComponent(channel)}`;
+    const init = { signal: requestSignal, cache: 'no-store' };
+    const readResponse = async response => {
+      if (!response?.ok) throw new Error(`Kick HTTP ${response?.status || 'error'}`);
+      const data = await response.json();
+      if (!/^[1-9][0-9]*$/.test(String(data?.chatroom?.id || ''))
+        || (typeof data.slug === 'string' && data.slug.toLowerCase() !== channel)) {
+        throw new Error('Invalid Kick chatroom response');
+      }
+      return data;
+    };
+    if (this.fetcher) return readResponse(await this.fetcher(url, init));
+    return fetchWithCorsProxy(url, init, { operation: 'kick-room', refresh, readResponse });
   }
 
   initPusherWS(connectionId = this.connectionId) {
     if (!this.isConnectionActive(connectionId)) return;
+    const room = `chatrooms.${this.chatroomId}.v2`;
+    let ws;
     try {
-      const wsUrl = this.getPusherWsUrl();
-      console.log(`[Kick Connector] Opening Pusher WebSocket to Kick (${this.currentKey})...`);
-      const ws = this.createWebSocket(wsUrl);
-      this.ws = ws;
-      let keyRefused = false;
-      const isCurrentSocket = () => this.isConnectionActive(connectionId) && this.ws === ws;
-
-      ws.onopen = () => {
-        if (!isCurrentSocket()) return;
-        console.log('[Kick Connector] Pusher WS connected. Subscribing to chatroom...');
-        const subscribePayload = {
-          event: 'pusher:subscribe',
-          data: {
-            auth: '',
-            channel: `chatrooms.${this.chatroomId}.v2`
-          }
-        };
-        ws.send(JSON.stringify(subscribePayload));
-        this.onStatus('kick', true, `Онлайн (${this.channel})`);
-
-        // Keepalive ping every 30 seconds
-        this.pingInterval = setInterval(() => {
-          if (isCurrentSocket() && ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ event: 'pusher:ping', data: {} }));
-          }
-        }, 30000);
-      };
-
-      ws.onmessage = (event) => {
-        if (!isCurrentSocket()) return;
-        try {
-          const packet = JSON.parse(event.data);
-
-          if (packet.event === 'pusher:connection_established') {
-            console.log('[Kick Connector] Pusher connection established:', packet.data);
-            this.saveWorkingKey(this.currentKey);
-          } else if (packet.event === 'pusher:ping') {
-            const isOpen = ws.readyState === undefined ? typeof ws.send === 'function' : ws.readyState === (ws.OPEN ?? 1);
-            if (isOpen) {
-              ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
-            }
-          } else if (packet.event === 'pusher:error') {
-            let errData = packet.data;
-            if (typeof errData === 'string') {
-              try {
-                errData = JSON.parse(errData);
-              } catch (_) {
-                // Non-JSON string payload
-              }
-            }
-            const code = (typeof errData === 'object' && errData !== null) ? errData.code : undefined;
-            const msg = (typeof errData === 'object' && errData !== null ? errData.message : '') || (typeof packet.data === 'string' ? packet.data : '');
-            console.warn(`[Kick Connector] Pusher error received (code ${code}):`, msg);
-            if (code === 4001 || /not in this cluster/i.test(msg)) {
-              keyRefused = true;
-              this.rotateToNextKey();
-            }
-          }
-
-          this.handlePusherPacket(packet);
-        } catch (e) {
-          console.error('[Kick Connector] Error parsing packet:', e);
-        }
-      };
-
-      ws.onerror = (err) => {
-        if (!isCurrentSocket()) return;
-        console.warn('[Kick Connector] WS Error:', err);
-      };
-
-      ws.onclose = (event) => {
-        if (!isCurrentSocket()) return;
-        const code = event?.code;
-        const reason = event?.reason || '';
-        console.warn(`[Kick Connector] WS Closed (code: ${code || 'unknown'}, reason: "${reason}"). Reconnecting...`);
-        this.onStatus('kick', false, 'Отключен');
-        this.cleanup();
-        this.ws = null;
-
-        // If Pusher refused the key with 4001 and it was not already rotated in pusher:error
-        const wasRefused = code === 4001 || keyRefused;
-        let hasNextKey = false;
-        if (wasRefused) {
-          if (!keyRefused) {
-            hasNextKey = this.rotateToNextKey();
-          } else {
-            // keyRefused was already rotated in pusher:error; check if we advanced or wrapped
-            const keys = this.pusherConfig.knownKeys;
-            hasNextKey = Array.isArray(keys) && keys.indexOf(this.currentKey) > 0;
-          }
-        }
-
-        // Reconnect quickly (1s) if we have another fallback key to try;
-        // if all keys failed or on standard disconnect, back off (15s or 5s) to avoid hammering
-        const delay = wasRefused ? (hasNextKey ? 1000 : 15000) : 5000;
-        this.reconnectTimer = setTimeout(() => {
-          if (this.isConnectionActive(connectionId)) this.connect(this.channel);
-        }, delay);
-      };
+      console.log('[Kick Connector] Opening Pusher WebSocket to Kick...');
+      ws = this.createWebSocket(this.getPusherWsUrl());
     } catch (e) {
-      console.error('[Kick Connector] Exception during WS setup:', e);
-      this.onStatus('kick', false, 'Ошибка');
+      console.warn('[Kick Connector] WebSocket setup failed.', e.name);
+      this.reconnectSocket(connectionId);
+      return;
     }
+    this.ws = ws;
+    let subscribed = false;
+    let subscribing = false;
+    const isCurrentSocket = () => this.isConnectionActive(connectionId) && this.ws === ws;
+
+    const recover = (reason, options) => {
+      if (!isCurrentSocket()) return;
+      console.warn('[Kick Connector] Reconnecting Pusher:', reason);
+      this.reconnectSocket(connectionId, options);
+    };
+    this.subscriptionTimer = setTimeout(() => recover('connection timeout'), 12000);
+    ws.onopen = () => {
+      if (isCurrentSocket()) this.onStatus('kick', false, `Подключение к чату (${this.channel})...`);
+    };
+
+    ws.onmessage = (event) => {
+      if (!isCurrentSocket()) return;
+      try {
+        const packet = JSON.parse(event.data);
+        const isExpectedRoom = packet.channel === room;
+
+        if (packet.event === 'pusher:connection_established' && !subscribing) {
+          subscribing = true;
+          clearTimeout(this.subscriptionTimer);
+          this.subscriptionTimer = setTimeout(() => recover('subscription timeout', { roomFailure: true }), 10000);
+          ws.send(JSON.stringify({ event: 'pusher:subscribe', data: { auth: '', channel: room } }));
+        } else if (['pusher_internal:subscription_succeeded', 'pusher:subscription_succeeded'].includes(packet.event)
+          && isExpectedRoom && subscribing && !subscribed) {
+          subscribed = true;
+          clearTimeout(this.subscriptionTimer);
+          this.subscriptionTimer = null;
+          this.saveWorkingKey(this.currentKey);
+          this.nextRoomRefreshAt = 0;
+          this.reconnectAttempts = 0;
+          // Keepalive ping every 30 seconds, with a deadline for its pong.
+          this.pingInterval = setInterval(() => {
+            if (!isCurrentSocket() || this.pongTimer || ws.readyState !== (ws.OPEN ?? 1)) return;
+            this.pongTimer = setTimeout(() => recover('pong timeout'), 10000);
+            ws.send(JSON.stringify({ event: 'pusher:ping', data: {} }));
+          }, 30000);
+          this.onStatus('kick', true, `Онлайн (${this.channel})`);
+        } else if (packet.event === 'pusher:ping') {
+          ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
+        } else if (packet.event === 'pusher:pong') {
+          clearTimeout(this.pongTimer);
+          this.pongTimer = null;
+        } else if (packet.event === 'pusher:error') {
+          this.handlePusherError(packet, room, recover);
+        } else if (isExpectedRoom && ['pusher:subscription_error', 'pusher_internal:subscription_error'].includes(packet.event)) {
+          recover('subscription refused', { roomFailure: true });
+        } else if (subscribed && isExpectedRoom) {
+          this.handlePusherPacket(packet);
+        }
+      } catch (e) {
+        console.warn('[Kick Connector] Could not process Pusher event.', e.name);
+      }
+    };
+
+    ws.onerror = () => {
+      if (isCurrentSocket()) console.warn('[Kick Connector] WebSocket transport error.');
+    };
+    ws.onclose = (event) => {
+      const code = event?.code;
+      recover(`connection closed (${code || 'unknown'})`, { keyRefused: code === 4001 });
+    };
+  }
+
+  handlePusherError(packet, room, recover) {
+    let data = packet.data;
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (_) {
+        // Non-JSON string payload
+      }
+    }
+    const message = typeof data === 'string' ? data : data?.message;
+    if (Number(data?.code) === 4001 || /not in this cluster/i.test(message || '')) {
+      recover('app key refused', { keyRefused: true });
+    } else if (packet.channel === room || data?.channel === room) {
+      recover('subscription refused', { roomFailure: true });
+    } else {
+      console.warn('[Kick Connector] Pusher error.', Number(data?.code) || 'unknown');
+    }
+  }
+
+  reconnectSocket(connectionId, { keyRefused = false, roomFailure = false } = {}) {
+    this.cleanup();
+    this.closeSocket();
+    const refreshRoom = roomFailure && Date.now() >= this.nextRoomRefreshAt;
+    if (refreshRoom) this.nextRoomRefreshAt = Date.now() + KICK_ROOM_REFRESH_COOLDOWN_MS;
+
+    // Try the next known Pusher key promptly. Slow down repeated transport failures.
+    const delay = keyRefused ? (this.rotateToNextKey() ? 1000 : 15000)
+      : Math.min(30000, 5000 * 2 ** Math.min(this.reconnectAttempts++, 3));
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.isConnectionActive(connectionId)) return;
+      if (refreshRoom || this.chatroomExpiresAt <= Date.now()) void this.lookupAndConnect(connectionId, refreshRoom);
+      else this.initPusherWS(connectionId);
+    }, delay);
+    this.onStatus('kick', false, 'Переподключение к чату Kick...');
   }
 
   handlePusherPacket(packet) {
@@ -356,16 +386,23 @@ class KickConnector {
     }
     this.channel = '';
     this.chatroomId = null;
+    this.chatroomExpiresAt = 0;
+    this.nextRoomRefreshAt = 0;
+    this.reconnectAttempts = 0;
     this.cleanup();
-    if (this.ws) {
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-      try { this.ws.close(); } catch (e) {}
-      this.ws = null;
-    }
+    this.closeSocket();
     this.onStatus('kick', false, 'Офлайн');
+  }
+
+  closeSocket() {
+    const socket = this.ws;
+    if (!socket) return;
+    this.ws = null;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    try { socket.close(); } catch (e) {}
   }
 
   cleanup() {
@@ -377,6 +414,10 @@ class KickConnector {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
+    clearTimeout(this.subscriptionTimer);
+    clearTimeout(this.pongTimer);
+    this.subscriptionTimer = null;
+    this.pongTimer = null;
   }
 }
 
