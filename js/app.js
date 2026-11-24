@@ -38,8 +38,11 @@ class MultiChatApp {
 
     this.chatMessagesEl = document.getElementById('chatMessages');
     this.chatContainerEl = document.getElementById('chatContainer');
+    this.unreadFloatingBarEl = document.getElementById('unreadFloatingBar');
     this.unreadBadgeEl = document.getElementById('unreadBadge');
     this.unreadBadgeTextEl = document.getElementById('unreadBadgeText');
+    this.unreadLagBadgeEl = document.getElementById('unreadLagBadge');
+    this.unreadLagTextEl = document.getElementById('unreadLagText');
     this.twitchUserPopup = new TwitchUserPopup({
       chatMessagesEl: this.chatMessagesEl,
       chatContainerEl: this.chatContainerEl,
@@ -291,6 +294,9 @@ class MultiChatApp {
         this.applyFontSettings(updated.fontSize);
         this.applyTwitchBadgesVisibility();
         this.pruneExcessMessages();
+        if (!this.isAutoScrollEnabled) {
+          this.updateUnreadBadge();
+        }
         this.initEmotesAndConnect();
       });
     }
@@ -299,6 +305,9 @@ class MultiChatApp {
       fontRange.addEventListener('input', (e) => {
         fontVal.textContent = e.target.value + 'px';
         this.applyFontSettings(e.target.value);
+        if (!this.isAutoScrollEnabled) {
+          this.updateUnreadBadge();
+        }
       });
     }
 
@@ -312,19 +321,38 @@ class MultiChatApp {
       });
     }
 
-    if (this.unreadBadgeEl) {
-      this.unreadBadgeEl.addEventListener('click', () => {
-        this.scrollToBottom();
-        this.isAutoScrollEnabled = true;
-        this.updateUnreadBadge();
-      });
+    if (this.chatContainerEl && (!this.unreadFloatingBarEl || !this.unreadBadgeEl || !this.unreadLagBadgeEl)) {
+      console.warn('[MultiChat UI] Floating unread badge elements are partially missing in DOM.');
     }
+
+    const jumpToBottom = () => {
+      this.scrollToBottom();
+      this.isAutoScrollEnabled = true;
+      this.updateUnreadBadge();
+    };
+
+    if (this.unreadBadgeEl) {
+      this.unreadBadgeEl.addEventListener('click', jumpToBottom);
+    }
+
+    if (this.unreadLagBadgeEl) {
+      this.unreadLagBadgeEl.addEventListener('click', jumpToBottom);
+    }
+
+    window.addEventListener('resize', () => {
+      if (!this.isAutoScrollEnabled) {
+        this.updateUnreadBadge();
+      }
+    });
 
     // Event Delegation for collapsed messages (replies and reward spoilers)
     this.chatMessagesEl.addEventListener('click', (e) => {
       const collapsedLine = e.target.closest('.collapsed-reply, .collapsed-reward');
       if (collapsedLine) {
         collapsedLine.classList.toggle('expanded');
+        if (!this.isAutoScrollEnabled) {
+          this.updateUnreadBadge();
+        }
       }
     });
 
@@ -515,6 +543,9 @@ class MultiChatApp {
     lineEl.className = 'chat-line';
     if (msg.id) lineEl.dataset.messageId = String(msg.id);
     if (msg.authorId) lineEl.dataset.authorId = String(msg.authorId);
+    if (typeof this.resolveMessageTimestamp === 'function') {
+      lineEl.dataset.timestamp = String(this.resolveMessageTimestamp(msg));
+    }
 
     // Apply special highlight classes
     if (isReward) {
@@ -673,27 +704,96 @@ class MultiChatApp {
     this.chatContainerEl.scrollTop = this.chatContainerEl.scrollHeight;
   }
 
+  parseTimestampMs(value) {
+    if (value === null || value === undefined || value === '') return null;
+
+    if (value instanceof Date) {
+      const ms = value.getTime();
+      return Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : null;
+    }
+
+    let num = null;
+    if (typeof value === 'number') {
+      num = value;
+    } else if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+        num = Number(trimmed);
+      } else {
+        const parsed = Date.parse(trimmed);
+        return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+      }
+    }
+
+    if (!Number.isFinite(num) || num <= 0) return null;
+    if (num >= 1e14) return Math.floor(num / 1000); // microseconds -> ms
+    if (num >= 1e11) return Math.floor(num); // milliseconds
+    if (num >= 1e9) return Math.floor(num * 1000); // unix seconds -> ms
+    return null;
+  }
+
+  resolveMessageTimestamp(msg, fallbackNow = Date.now()) {
+    if (!msg || typeof msg !== 'object') return fallbackNow;
+
+    const candidates = [
+      msg.timestamp,
+      msg.tags?.['tmi-sent-ts'],
+      msg.timestampUsec,
+      msg.raw?.createdAt,
+      msg.raw?.created_at
+    ];
+
+    for (const candidate of candidates) {
+      const parsed = this.parseTimestampMs(candidate);
+      if (parsed !== null) return parsed;
+    }
+
+    return fallbackNow;
+  }
+
+  getElementTimestamp(el) {
+    const raw = el?.dataset?.timestamp;
+    if (!raw) return null;
+    const ts = Number(raw);
+    return Number.isFinite(ts) && ts > 0 ? ts : null;
+  }
+
   formatUnreadCountText(count) {
     const mod10 = count % 10;
     const mod100 = count % 100;
+    const word = (mod10 === 1 && mod100 !== 11) ? 'новое' : 'новых';
+    return `↓ ${count} ${word}`;
+  }
 
-    let word = 'новых сообщений';
-    if (mod100 >= 11 && mod100 <= 19) {
-      word = 'новых сообщений';
-    } else if (mod10 === 1) {
-      word = 'новое сообщение';
-    } else if (mod10 >= 2 && mod10 <= 4) {
-      word = 'новых сообщения';
+  formatUnreadLagText(diffMs) {
+    const safeDiffMs = Number.isFinite(diffMs) && diffMs > 0 ? diffMs : 0;
+    const totalMinutes = Math.floor(safeDiffMs / 60000);
+
+    if (totalMinutes < 1) {
+      return '1м';
     }
 
-    return `↓ ${count} ${word}`;
+    if (totalMinutes < 60) {
+      return `${totalMinutes}м`;
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes === 0 ? `${hours}ч` : `${hours}ч ${minutes}м`;
   }
 
   updateUnreadBadge() {
     if (!this.chatContainerEl || !this.chatMessagesEl || !this.unreadBadgeEl) return;
 
-    if (this.isAutoScrollEnabled) {
+    const hideBadges = () => {
+      if (this.unreadFloatingBarEl) this.unreadFloatingBarEl.classList.add('hidden');
       this.unreadBadgeEl.classList.add('hidden');
+      if (this.unreadLagBadgeEl) this.unreadLagBadgeEl.classList.add('hidden');
+    };
+
+    if (this.isAutoScrollEnabled) {
+      hideBadges();
       return;
     }
 
@@ -701,22 +801,71 @@ class MultiChatApp {
     let unreadCount = 0;
 
     const children = this.chatMessagesEl.children;
+    let lastVisibleIndex = -1;
     for (let i = children.length - 1; i >= 0; i--) {
       const child = children[i];
       if (child.offsetTop + 5 >= viewportBottom) {
         unreadCount++;
       } else {
+        lastVisibleIndex = i;
         break;
       }
     }
 
-    if (unreadCount > 0) {
-      if (this.unreadBadgeTextEl) {
-        this.unreadBadgeTextEl.textContent = this.formatUnreadCountText(unreadCount);
+    if (unreadCount <= 0) {
+      hideBadges();
+      return;
+    }
+
+    if (this.unreadBadgeTextEl) {
+      this.unreadBadgeTextEl.textContent = this.formatUnreadCountText(unreadCount);
+    }
+    this.unreadBadgeEl.classList.remove('hidden');
+    if (this.unreadFloatingBarEl) {
+      this.unreadFloatingBarEl.classList.remove('hidden');
+    }
+
+    if (this.unreadLagBadgeEl) {
+      const firstUnreadIndex = children.length - unreadCount;
+      let referenceTimestamp = null;
+
+      // Anchor on the bottom-most visible message; if it lacks a timestamp (e.g. static header line),
+      // fall back to the nearest earlier message, or the first unread message if nothing earlier has one.
+      for (let i = lastVisibleIndex; i >= 0; i--) {
+        const ts = this.getElementTimestamp(children[i]);
+        if (ts !== null) {
+          referenceTimestamp = ts;
+          break;
+        }
       }
-      this.unreadBadgeEl.classList.remove('hidden');
-    } else {
-      this.unreadBadgeEl.classList.add('hidden');
+      if (referenceTimestamp === null) {
+        for (let i = firstUnreadIndex; i < children.length; i++) {
+          const ts = this.getElementTimestamp(children[i]);
+          if (ts !== null) {
+            referenceTimestamp = ts;
+            break;
+          }
+        }
+      }
+
+      let latestTimestamp = null;
+      for (let i = children.length - 1; i >= firstUnreadIndex; i--) {
+        const ts = this.getElementTimestamp(children[i]);
+        if (ts !== null) {
+          latestTimestamp = ts;
+          break;
+        }
+      }
+
+      if (referenceTimestamp !== null && latestTimestamp !== null) {
+        const lagMs = Math.max(0, latestTimestamp - referenceTimestamp);
+        if (this.unreadLagTextEl) {
+          this.unreadLagTextEl.textContent = this.formatUnreadLagText(lagMs);
+        }
+        this.unreadLagBadgeEl.classList.remove('hidden', 'is-unavailable');
+      } else {
+        this.unreadLagBadgeEl.classList.add('hidden', 'is-unavailable');
+      }
     }
   }
 

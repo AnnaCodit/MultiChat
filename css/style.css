@@ -215,19 +215,49 @@ body.dark-theme {
   background-color: rgba(255, 255, 255, 0.4);
 }
 
-/* Unread Messages Floating Badge */
-.unread-badge {
+/* Unread Messages Floating Bar & Pills */
+.unread-floating-bar {
   position: fixed;
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 100;
+  z-index: 90;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.unread-floating-bar.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(10px);
+}
+
+.unread-floating-bar.hidden .unread-badge {
+  pointer-events: none;
+}
+
+.unread-floating-bar:not(.hidden) .unread-badge.hidden,
+.unread-lag-badge.is-unavailable {
+  display: none;
+}
+
+.unread-badge {
+  pointer-events: auto;
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   background: rgba(20, 22, 32, 0.88);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 20px;
-  padding: 8px 16px;
+  padding: 8px 14px;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -237,7 +267,7 @@ body.dark-theme {
   transition: opacity 0.25s ease, transform 0.25s ease, background-color 0.2s ease, box-shadow 0.2s ease;
   user-select: none;
   outline: none;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
@@ -245,18 +275,27 @@ body.dark-theme {
 .unread-badge:hover {
   background: rgba(35, 38, 55, 0.95);
   border-color: rgba(255, 255, 255, 0.3);
-  transform: translateX(-50%) translateY(-2px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(138, 43, 226, 0.5);
 }
 
 .unread-badge:active {
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 
-.unread-badge.hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-50%) translateY(10px);
+.unread-lag-badge {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 8px rgba(56, 189, 248, 0.22);
+}
+
+.unread-lag-badge:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.4);
+}
+
+.unread-lag-icon {
+  opacity: 0.78;
+  flex-shrink: 0;
 }
 
 .chat-messages {
